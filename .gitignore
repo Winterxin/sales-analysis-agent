@@ -1,0 +1,45 @@
+.DS_Store
+Thumbs.db
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+
+# Test runner scratch directories
+apps/api/.pytest-basetemp/
+apps/api/.pytest-tmp/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Runtime artifacts and local state
+runtime/
+apps/api/runtime/
+uploads/
+artifacts/
+llm_cache/
+output/
+eval/results/
+eval/deliverables/
+*.db
+*.sqlite
+*.sqlite3
+*.zip
+
+# Packaging metadata
+*.egg-info/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Local reference notebooks
+/sales-analysis.ipynb
+/sales-order-analysis-and-profit-prediction.ipynb

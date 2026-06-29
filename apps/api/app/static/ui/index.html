@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sales Analysis Agent</title>
+    <link rel="stylesheet" href="/static/ui/app.css?v=g75a4" />
+    <link rel="stylesheet" href="/static/ui/results.css?v=g75a4" />
+  </head>
+  <body>
+    <div class="app" id="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">SA</span>
+          <span>Sales Analysis Agent</span>
+        </div>
+        <div class="topbar-actions">
+          <nav class="nav" aria-label="Pages">
+            <button id="analysis-tab" type="button" aria-current="page" data-i18n="analysis">Analysis</button>
+            <button id="detail-tab" type="button" data-i18n="taskDetails">Task Details</button>
+          </nav>
+          <div id="language-switch" class="language-switch" role="radiogroup" aria-label="Language">
+            <span class="language-label" data-i18n="language">Language</span>
+            <label class="language-option">
+              <input type="radio" name="output-language" value="en" checked />
+              <span>English</span>
+            </label>
+            <label class="language-option">
+              <input type="radio" name="output-language" value="zh-CN" />
+              <span>中文</span>
+            </label>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section id="analysis-page" class="analysis-page">
+          <div class="main-shell">
+            <div class="headline">
+              <h1 data-i18n="headline">Upload a Sales CSV and Generate Analysis Artifacts</h1>
+            </div>
+
+            <div class="workspace">
+              <section class="panel" aria-labelledby="start-title">
+                <div class="panel-head">
+                  <h2 id="start-title" data-i18n="startAnalysis">Start Analysis</h2>
+                </div>
+                <div class="panel-body stack">
+                  <div>
+                    <span class="field-label" data-i18n="runMode">Run Mode</span>
+                    <div class="mode-grid" role="radiogroup" aria-label="Run Mode">
+                      <label class="mode-card">
+                        <span>
+                          <input type="radio" name="llm-profile" value="quick" checked />
+                          <strong data-i18n="quick">Quick</strong>
+                        </span>
+                        <span class="hint" data-i18n="quickHint">Fast complete artifacts with core LLM stages and lightweight chart selection.</span>
+                      </label>
+                      <label class="mode-card">
+                        <span>
+                          <input type="radio" name="llm-profile" value="full" />
+                          <strong data-i18n="full">Full</strong>
+                        </span>
+                        <span class="hint" data-i18n="fullHint">Deeper enhancement with chart intent planning, revision, and extra reflections.</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <form id="analysis-form" class="stack">
+                    <div class="dropzone">
+                      <span class="field-label" data-i18n="chooseCsv">Choose Sales CSV</span>
+                      <div class="file-row">
+                        <label class="file-button" for="csv-file" data-i18n="uploadFile">Upload File</label>
+                        <span id="file-name" class="file-name" data-empty-file="true">No file selected</span>
+                        <input id="csv-file" name="file" type="file" accept=".csv,text/csv" required />
+                      </div>
+                      <p class="hint" data-i18n="csvHint">Supports order details, retail transactions, and ecommerce sales data.</p>
+                    </div>
+                    <div class="actions">
+                      <button class="primary" id="submit-button" type="submit" data-i18n="startAnalysis">Start Analysis</button>
+                      <button class="secondary" id="reset-button" type="button" data-i18n="reset">Reset</button>
+                      <button class="secondary" id="open-preview-button" type="button" data-i18n="previewReport">Preview Report</button>
+                    </div>
+                  </form>
+
+                  <div class="downloads">
+                    <span class="field-label" data-i18n="artifactDownloads">Artifact Downloads</span>
+                    <div id="download-list" class="download-grid">
+                      <a class="download disabled" href="#" data-i18n="notebook">Notebook</a>
+                      <a class="download disabled" href="#" data-i18n="businessReview">Business Review</a>
+                      <a class="download disabled" href="#">HTML</a>
+                      <a class="download disabled" href="#">JSON</a>
+                    </div>
+                  </div>
+                  <div class="status-row">
+                    <p id="status" class="hint" role="status" aria-live="polite">Waiting for a file.</p>
+                    <button id="view-detail-link" class="detail-link hidden" type="button" data-i18n="viewTaskDetails">View Task Details</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel" aria-labelledby="progress-title">
+                <div class="panel-head">
+                  <h2 id="progress-title" data-i18n="agentFlow">Agent Flow</h2>
+                  <span id="status-pill" class="status-pill" data-status-key="waiting">Waiting</span>
+                </div>
+                <div class="panel-body">
+                  <ol id="steps" class="steps">
+                    <li class="step">
+                      <span class="step-dot">1</span>
+                      <div>
+                        <div class="step-title" data-i18n="stepCreateTitle">Create Task</div>
+                        <div class="step-note" data-i18n="stepCreateNote">Prepare runtime folder and task record.</div>
+                      </div>
+                      <span class="step-time">-</span>
+                    </li>
+                    <li class="step">
+                      <span class="step-dot">2</span>
+                      <div>
+                        <div class="step-title" data-i18n="stepUploadTitle">Upload and Map Fields</div>
+                        <div class="step-note" data-i18n="stepUploadNote">Detect date, sales, product, profit, and related fields.</div>
+                      </div>
+                      <span class="step-time">-</span>
+                    </li>
+                    <li class="step">
+                      <span class="step-dot">3</span>
+                      <div>
+                        <div class="step-title" data-i18n="stepPlanTitle">Plan Analysis</div>
+                        <div class="step-note" data-i18n="stepPlanNote">Select trend, product, order, profit, and modeling modules.</div>
+                      </div>
+                      <span class="step-time">-</span>
+                    </li>
+                    <li class="step">
+                      <span class="step-dot">4</span>
+                      <div>
+                        <div class="step-title" data-i18n="stepRunTitle">Run Analysis</div>
+                        <div class="step-note" data-i18n="stepRunNote">Run Python analysis, chart selection, Notebook generation, and execution.</div>
+                      </div>
+                      <span class="step-time">-</span>
+                    </li>
+                    <li class="step">
+                      <span class="step-dot">5</span>
+                      <div>
+                        <div class="step-title" data-i18n="stepReportsTitle">Build Reports</div>
+                        <div class="step-note" data-i18n="stepReportsNote">Prepare Client Report, Notebook, and Business Review.</div>
+                      </div>
+                      <span class="step-time">-</span>
+                    </li>
+                  </ol>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <button class="drawer-tab" id="drawer-tab" type="button" data-i18n="reportPreview">Report Preview</button>
+          <aside class="preview-drawer" aria-label="Report Preview">
+            <div class="drawer-head">
+              <h2 data-i18n="reportPreview">Report Preview</h2>
+              <div class="drawer-tools">
+                <button id="preview-kind-button" type="button" data-i18n="clientReport">Client Report</button>
+                <button id="expand-preview-button" type="button" aria-pressed="false" data-i18n="expand">Expand</button>
+                <a id="open-report-link" href="#" target="_blank" rel="noopener noreferrer" data-i18n="open">Open</a>
+                <button id="close-preview-button" type="button" data-i18n="close">Close</button>
+              </div>
+            </div>
+            <div class="drawer-body">
+              <div id="preview-empty" class="preview-empty">
+                <strong data-i18n="previewEmpty">The report preview opens after analysis completes.</strong>
+              </div>
+              <iframe
+                id="report-preview-frame"
+                class="hidden"
+                title="Client report preview"
+              ></iframe>
+            </div>
+          </aside>
+        </section>
+
+        <section id="results-page" class="results-page">
+          <div class="results-shell">
+            <section class="results-hero" aria-labelledby="results-title">
+              <div>
+                <h1 id="results-title">数据集分析结果</h1>
+                <p>把 Notebook 里的图表、文字结论、模型结果和行动建议整理成客户可读的页面；代码仍保留在 Notebook 下载产物中。</p>
+              </div>
+              <div id="results-actions" class="results-actions"></div>
+            </section>
+
+            <section id="results-meta" class="results-meta" aria-label="本次分析摘要"></section>
+            <section id="results-kpis" class="results-kpis" aria-label="关键指标"></section>
+            <section id="results-summary" class="results-panel"></section>
+            <section id="results-sections" class="results-list" aria-label="分析章节"></section>
+            <section id="results-modeling" class="results-panel"></section>
+            <section id="results-action-plan" class="results-panel"></section>
+            <section id="results-data-note" class="results-panel"></section>
+          </div>
+        </section>
+
+        <section id="detail-page" class="detail-page">
+          <div class="headline">
+            <h1 data-i18n="taskDetails">Task Details</h1>
+            <p data-i18n="detailDescription">Detailed task state, field mapping, module count, trace, and errors live here.</p>
+          </div>
+          <div class="detail-grid">
+            <div class="metric"><span class="hint" data-i18n="taskStatus">Task Status</span><b id="detail-status">-</b></div>
+            <div class="metric"><span class="hint" data-i18n="runMode">Run Mode</span><b id="detail-profile">-</b></div>
+            <div class="metric"><span class="hint" data-i18n="moduleCount">Module Count</span><b id="detail-module-count">-</b></div>
+          </div>
+          <section class="panel detail-panel" aria-labelledby="field-title">
+            <div class="panel-head"><h2 id="field-title" data-i18n="fieldMapping">Field Mapping</h2></div>
+            <div class="panel-body">
+              <table>
+                <thead><tr><th data-i18n="sourceField">Source Field</th><th data-i18n="mappedMeaning">Mapped Meaning</th></tr></thead>
+                <tbody id="field-table"><tr><td colspan="2">Waiting for upload.</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/static/ui/app.js?v=g75a4"></script>
+  </body>
+</html>
