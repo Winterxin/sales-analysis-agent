@@ -40,6 +40,7 @@ A completed run can produce:
 - Field-aware limits when optional columns are missing
 - Executed notebook output with charts and supporting tables
 - Business review and client report artifacts
+- Runtime task status with progress heartbeat, refresh recovery, LLM call state, and cooperative cancellation
 - Optional LLM enrichment through an OpenAI-compatible Chat Completions endpoint
 
 ## Supported Data Shape
@@ -121,8 +122,9 @@ SALES_AGENT_LLM_API_KEY=
 SALES_AGENT_LLM_MODEL=
 ```
 
-The LLM enriches planning and narrative generation. The deterministic analysis
-pipeline remains available when LLM enrichment is disabled.
+The LLM enriches planning and narrative generation. It is optional: incomplete
+configuration falls back safely, and the deterministic analysis pipeline remains
+runnable when LLM enrichment is disabled.
 
 See [docs/llm-configuration.md](docs/llm-configuration.md) for details.
 
@@ -134,6 +136,9 @@ runtime path is `runtime`.
 Typical files include executed notebooks, HTML reports, JSON reports, trace
 metadata, and manifest metadata. Runtime outputs are intentionally ignored by
 Git.
+
+Cooperative cancellation: the current stage is allowed to finish before the run
+stops.
 
 ## Example Dataset
 

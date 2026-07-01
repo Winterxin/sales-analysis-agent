@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,24 @@ INTERPRETATION_KEYS = {
     "review_guidance",
     "business_use_warning",
 }
+
+
+def _wait_for_terminal_task(
+    client: TestClient,
+    task_id: str,
+    *,
+    timeout_seconds: float = 120.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    last_body: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/v1/analysis/tasks/{task_id}")
+        assert response.status_code == 200
+        last_body = response.json()
+        if last_body.get("status") in {"completed", "failed", "cancelled"}:
+            return last_body
+        time.sleep(0.25)
+    raise AssertionError(f"Task {task_id} did not finish; last body={last_body}")
 
 
 def _modeling_module(*, skipped: bool = False) -> ModuleReport:
@@ -700,8 +719,8 @@ def test_run_trace_contains_modeling_interpretation_stage(
 
     run_response = client.post(f"/api/v1/analysis/tasks/{task_id}/run")
     assert run_response.status_code == 202
-    body = run_response.json()
-    assert "modeling_interpretation" in body["llm_trace"]
+    body = _wait_for_terminal_task(client, task_id)
+    assert body["status"] == "completed"
 
     trace_response = client.get(f"/api/v1/analysis/tasks/{task_id}/artifacts/llm-trace")
     assert trace_response.status_code == 200

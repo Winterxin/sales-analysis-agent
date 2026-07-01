@@ -37,15 +37,30 @@ class RunResponse(BaseModel):
     task_id: str
     status: str
     output_language: str = "en"
-    report: AnalysisReport
-    business_review: BusinessReviewArtifact
-    notebook: NotebookArtifact
-    llm_trace: dict[str, LLMStageTrace] = Field(default_factory=dict)
+    current_stage: str | None = None
+    current_stage_label: str | None = None
+    status_message: str | None = None
+    cancel_requested: bool = False
+    llm_status: str = "unknown"
+    llm_message: str | None = None
+    started_at: str | None = None
+    heartbeat_at: str | None = None
+    finished_at: str | None = None
+    error_message: str | None = None
 
 
 class TaskDetailResponse(BaseModel):
     task_id: str
     status: str
     dataset_type: str | None = None
+    current_stage: str | None = None
+    current_stage_label: str | None = None
+    status_message: str | None = None
+    cancel_requested: bool = False
+    llm_status: str = "unknown"
+    llm_message: str | None = None
+    started_at: str | None = None
+    heartbeat_at: str | None = None
+    finished_at: str | None = None
     artifact_manifest: dict[str, object] = Field(default_factory=dict)
     error_message: str | None = None

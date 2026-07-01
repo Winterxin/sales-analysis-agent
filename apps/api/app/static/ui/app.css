@@ -330,6 +330,16 @@ button:disabled {
   border-color: var(--line);
 }
 
+.secondary.danger {
+  background: #fffafa;
+  border-color: #e4a295;
+  color: var(--danger);
+}
+
+.secondary.danger:hover {
+  background: #fff4f1;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible {
@@ -359,6 +369,8 @@ input:focus-visible {
   font-size: 13px;
   color: var(--muted);
   text-decoration: none;
+  min-height: 38px;
+  white-space: nowrap;
 }
 
 .download.disabled {
@@ -370,10 +382,11 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 24px;
+  min-height: 0;
 }
 
 .status-row p {
+  display: none;
   margin: 0;
 }
 
@@ -390,14 +403,52 @@ input:focus-visible {
   text-underline-offset: 3px;
 }
 
-.status-pill {
-  border: 1px solid #b8ded7;
-  color: var(--accent-dark);
-  background: #eef9f6;
+.pill-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.status-pill,
+.llm-status-pill {
   border-radius: 999px;
   padding: 7px 10px;
   font-weight: 750;
   font-size: 13px;
+  white-space: nowrap;
+}
+
+.status-pill {
+  border: 1px solid #b8ded7;
+  color: var(--accent-dark);
+  background: #eef9f6;
+}
+
+.llm-status-pill {
+  border: 1px solid #d3d8d3;
+  color: #4d5a5d;
+  background: var(--soft);
+}
+
+.llm-status-pill[data-llm-status="pending"] {
+  border-color: #d9c48d;
+  color: #6d5410;
+  background: #fff8e3;
+}
+
+.llm-status-pill[data-llm-status="called"] {
+  border-color: #a8d4be;
+  color: var(--ok);
+  background: #f0faf4;
+}
+
+.llm-status-pill[data-llm-status="failed"],
+.llm-status-pill[data-llm-status="fallback"] {
+  border-color: #e4a295;
+  color: var(--danger);
+  background: #fff7f5;
 }
 
 .steps {
@@ -464,6 +515,22 @@ input:focus-visible {
   font-weight: 760;
 }
 
+.step.cancelled {
+  border-color: #d9c48d;
+  background: #fffaf0;
+}
+
+.step.cancelled .step-dot {
+  background: #9a6b16;
+  border-color: #9a6b16;
+  color: #fff;
+}
+
+.step.cancelled .step-time {
+  color: #7b5a16;
+  font-weight: 760;
+}
+
 .step-title {
   font-weight: 760;
 }
@@ -473,6 +540,94 @@ input:focus-visible {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.35;
+}
+
+.live-activity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #b8ded7;
+  border-radius: 7px;
+  background: #f7fffc;
+}
+
+.activity-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.38);
+  animation: activity-pulse 1.5s ease-out infinite;
+}
+
+.activity-text {
+  min-width: 0;
+}
+
+.activity-title,
+.activity-note {
+  display: block;
+}
+
+.activity-title {
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.activity-note {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.activity-time {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.activity-meter {
+  grid-column: 2 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dceee9;
+}
+
+.activity-meter::before {
+  content: "";
+  display: block;
+  width: 36%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: activity-sweep 1.8s ease-in-out infinite;
+}
+
+@keyframes activity-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.38);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(15, 118, 110, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(15, 118, 110, 0);
+  }
+}
+
+@keyframes activity-sweep {
+  0% {
+    translate: -120% 0;
+  }
+  100% {
+    translate: 300% 0;
+  }
 }
 
 .step-time {
@@ -621,7 +776,7 @@ input:focus-visible {
 
 .detail-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   max-width: 1120px;
   margin: 18px auto 0;
@@ -774,6 +929,28 @@ tr:last-child td {
 
   .headline h1 {
     font-size: 30px;
+  }
+
+  .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pill-cluster {
+    justify-content: flex-start;
+  }
+
+  .live-activity {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .activity-time,
+  .activity-meter {
+    grid-column: 2;
+  }
+
+  .activity-time {
+    white-space: normal;
   }
 }
 

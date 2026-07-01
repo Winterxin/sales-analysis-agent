@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Sales Analysis Agent</title>
-    <link rel="stylesheet" href="/static/ui/app.css?v=g75a4" />
-    <link rel="stylesheet" href="/static/ui/results.css?v=g75a4" />
+    <link rel="stylesheet" href="/static/ui/app.css?v=runtimev3" />
+    <link rel="stylesheet" href="/static/ui/results.css?v=runtimev3" />
   </head>
   <body>
     <div class="app" id="app-shell">
@@ -54,14 +54,14 @@
                           <input type="radio" name="llm-profile" value="quick" checked />
                           <strong data-i18n="quick">Quick</strong>
                         </span>
-                        <span class="hint" data-i18n="quickHint">Fast complete artifacts with core LLM stages and lightweight chart selection.</span>
+                        <span class="hint" data-i18n="quickHint">Fast run with core LLM stages.</span>
                       </label>
                       <label class="mode-card">
                         <span>
                           <input type="radio" name="llm-profile" value="full" />
                           <strong data-i18n="full">Full</strong>
                         </span>
-                        <span class="hint" data-i18n="fullHint">Deeper enhancement with chart intent planning, revision, and extra reflections.</span>
+                        <span class="hint" data-i18n="fullHint">Deeper run with chart planning and revision.</span>
                       </label>
                     </div>
                   </div>
@@ -78,6 +78,7 @@
                     </div>
                     <div class="actions">
                       <button class="primary" id="submit-button" type="submit" data-i18n="startAnalysis">Start Analysis</button>
+                      <button class="secondary danger" id="stop-button" type="button" data-i18n="stop" hidden>Stop</button>
                       <button class="secondary" id="reset-button" type="button" data-i18n="reset">Reset</button>
                       <button class="secondary" id="open-preview-button" type="button" data-i18n="previewReport">Preview Report</button>
                     </div>
@@ -102,7 +103,10 @@
               <section class="panel" aria-labelledby="progress-title">
                 <div class="panel-head">
                   <h2 id="progress-title" data-i18n="agentFlow">Agent Flow</h2>
-                  <span id="status-pill" class="status-pill" data-status-key="waiting">Waiting</span>
+                  <div class="pill-cluster">
+                    <span id="status-pill" class="status-pill" data-status-key="waiting">Waiting</span>
+                    <span id="llm-status-pill" class="llm-status-pill" data-llm-status="unknown" title="LLM call status">LLM: unknown</span>
+                  </div>
                 </div>
                 <div class="panel-body">
                   <ol id="steps" class="steps">
@@ -135,6 +139,15 @@
                       <div>
                         <div class="step-title" data-i18n="stepRunTitle">Run Analysis</div>
                         <div class="step-note" data-i18n="stepRunNote">Run Python analysis, chart selection, Notebook generation, and execution.</div>
+                        <div id="live-activity-run" class="live-activity hidden" aria-live="polite">
+                          <span class="activity-dot" aria-hidden="true"></span>
+                          <span class="activity-text">
+                            <span class="activity-title" data-i18n="activityTitle">Active work detected</span>
+                            <span class="activity-note">Working on the current analysis stage.</span>
+                          </span>
+                          <span class="activity-time">Updated just now</span>
+                          <span class="activity-meter" aria-hidden="true"></span>
+                        </div>
                       </div>
                       <span class="step-time">-</span>
                     </li>
@@ -143,6 +156,15 @@
                       <div>
                         <div class="step-title" data-i18n="stepReportsTitle">Build Reports</div>
                         <div class="step-note" data-i18n="stepReportsNote">Prepare Client Report, Notebook, and Business Review.</div>
+                        <div id="live-activity-reports" class="live-activity hidden" aria-live="polite">
+                          <span class="activity-dot" aria-hidden="true"></span>
+                          <span class="activity-text">
+                            <span class="activity-title" data-i18n="activityTitle">Active work detected</span>
+                            <span class="activity-note">Working on the current analysis stage.</span>
+                          </span>
+                          <span class="activity-time">Updated just now</span>
+                          <span class="activity-meter" aria-hidden="true"></span>
+                        </div>
                       </div>
                       <span class="step-time">-</span>
                     </li>
@@ -205,6 +227,8 @@
             <div class="metric"><span class="hint" data-i18n="taskStatus">Task Status</span><b id="detail-status">-</b></div>
             <div class="metric"><span class="hint" data-i18n="runMode">Run Mode</span><b id="detail-profile">-</b></div>
             <div class="metric"><span class="hint" data-i18n="moduleCount">Module Count</span><b id="detail-module-count">-</b></div>
+            <div class="metric"><span class="hint" data-i18n="currentStage">Current Stage</span><b id="detail-current-stage">-</b></div>
+            <div class="metric"><span class="hint" data-i18n="llmStatus">LLM Status</span><b id="detail-llm-status">-</b></div>
           </div>
           <section class="panel detail-panel" aria-labelledby="field-title">
             <div class="panel-head"><h2 id="field-title" data-i18n="fieldMapping">Field Mapping</h2></div>
@@ -218,6 +242,6 @@
         </section>
       </main>
     </div>
-    <script type="module" src="/static/ui/app.js?v=g75a4"></script>
+    <script type="module" src="/static/ui/app.js?v=runtimev3"></script>
   </body>
 </html>

@@ -32,6 +32,18 @@ export async function runAnalysis(taskId, profile, outputLanguage = "en") {
   return parseResponse(response, "Analysis failed");
 }
 
+export async function getTask(taskId) {
+  const response = await fetch(`/api/v1/analysis/tasks/${taskId}`);
+  return parseResponse(response, "Failed to load task");
+}
+
+export async function cancelTask(taskId) {
+  const response = await fetch(`/api/v1/analysis/tasks/${taskId}/cancel`, {
+    method: "POST",
+  });
+  return parseResponse(response, "Failed to stop task");
+}
+
 export async function getAnalysisResults(taskId) {
   const response = await fetch(`/api/v1/analysis/tasks/${taskId}/results`);
   return parseResponse(response, "Failed to load analysis results");

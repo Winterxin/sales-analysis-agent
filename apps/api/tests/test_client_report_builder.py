@@ -2132,6 +2132,10 @@ def test_analysis_run_service_passes_final_synthesis_and_modeling_context(monkey
             return f"{task_id}/{name}"
 
     class FakeService:
+        artifacts = SimpleNamespace(
+            persist_llm_trace=lambda ctx: setattr(ctx, "saved_trace", True)
+        )
+
         def _report(self, ctx):
             return "report"
 

@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import time
+
 from fastapi.testclient import TestClient
+
+
+def _wait_for_completed(client: TestClient, task_id: str) -> None:
+    deadline = time.monotonic() + 120.0
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/v1/analysis/tasks/{task_id}")
+        assert response.status_code == 200
+        if response.json()["status"] == "completed":
+            return
+        time.sleep(0.25)
+    raise AssertionError(f"Task {task_id} did not complete")
 
 
 def test_artifact_download_endpoint_serves_business_review(
@@ -15,6 +28,7 @@ def test_artifact_download_endpoint_serves_business_review(
         )
 
     client.post(f"/api/v1/analysis/tasks/{task_id}/run")
+    _wait_for_completed(client, task_id)
 
     response = client.get(
         f"/api/v1/analysis/tasks/{task_id}/artifacts/business-review"
@@ -36,6 +50,7 @@ def test_artifact_download_endpoint_serves_client_report_html(
         )
 
     client.post(f"/api/v1/analysis/tasks/{task_id}/run")
+    _wait_for_completed(client, task_id)
 
     response = client.get(
         f"/api/v1/analysis/tasks/{task_id}/artifacts/client-report-html"
@@ -59,6 +74,7 @@ def test_artifact_download_endpoint_serves_client_report_json(
         )
 
     client.post(f"/api/v1/analysis/tasks/{task_id}/run")
+    _wait_for_completed(client, task_id)
 
     response = client.get(
         f"/api/v1/analysis/tasks/{task_id}/artifacts/client-report-json"
@@ -80,6 +96,7 @@ def test_artifact_downloads_preserve_chinese_when_requested(
         )
 
     client.post(f"/api/v1/analysis/tasks/{task_id}/run?output_language=zh-CN")
+    _wait_for_completed(client, task_id)
 
     business_review = client.get(
         f"/api/v1/analysis/tasks/{task_id}/artifacts/business-review"

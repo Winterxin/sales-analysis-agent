@@ -2472,11 +2472,11 @@ def test_notebook_content_prompt_uses_compact_section_report_context() -> None:
     assert len(module["findings"]) == 8
 
 
-class CliproxyNotebookContentLLMClient(RecordingNotebookContentLLMClient):
-    source = "cliproxy"
+class LimitedPayloadNotebookContentLLMClient(RecordingNotebookContentLLMClient):
+    large_section_payloads_supported = False
 
 
-def test_notebook_content_planner_skips_segment_region_llm_on_cliproxy() -> None:
+def test_notebook_content_planner_skips_segment_region_llm_for_limited_payload_client() -> None:
     outline = NotebookOutline(
         title="Sales Notebook",
         sections=[
@@ -2525,7 +2525,7 @@ def test_notebook_content_planner_skips_segment_region_llm_on_cliproxy() -> None
         modules=[],
     )
     analysis_plan = AnalysisPlan(analysis_plan=[], chart_preferences={}, reasoning_summary=[])
-    llm_client = CliproxyNotebookContentLLMClient()
+    llm_client = LimitedPayloadNotebookContentLLMClient()
 
     content, trace = build_notebook_content_with_trace(
         outline=outline,

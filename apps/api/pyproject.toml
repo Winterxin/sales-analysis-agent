@@ -40,5 +40,5 @@ where = ["."]
 include = ["app*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "../.."]
 testpaths = ["tests"]

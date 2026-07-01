@@ -8,6 +8,9 @@ from fastapi import HTTPException
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from app.application.run_artifacts import RunArtifacts
+from app.application.run_stages import RunStage, RunStageExecutor
+from app.application.runtime_state import RuntimeStateStore
 from app.analysis.runner import run_analysis
 from app.application.run_context import AnalysisRunContext
 from app.core.config import get_settings
@@ -35,7 +38,6 @@ from app.services.llm_profile_policy import (
     normalize_llm_profile,
     resolve_max_postrun_reflections,
 )
-from app.services.llm_trace_utils import with_llm_trace_summary
 from app.services.modeling_interpretation import build_modeling_interpretation_with_trace
 from app.services.modeling_opportunity_decision import build_modeling_opportunity_decision_with_trace
 from app.services.modeling_opportunity_planner import build_modeling_opportunity_plan
@@ -67,27 +69,6 @@ from app.services.run_budget import (
     RunBudget,
     build_skipped_stage_trace,
 )
-
-
-def _llm_trace_artifact_payload(
-    llm_trace: dict[str, object],
-    *,
-    llm_profile: str | None = None,
-    output_language: str | None = None,
-    llm_profile_policy: dict[str, object] | None = None,
-    profile_limited_stage_count: int | None = None,
-    max_llm_postrun_reflections_resolved: int | None = None,
-    allow_postrun_fallback_reflections: bool | None = None,
-) -> dict[str, object]:
-    return with_llm_trace_summary(
-        llm_trace,
-        llm_profile=llm_profile,
-        output_language=output_language,
-        llm_profile_policy=llm_profile_policy,
-        profile_limited_stage_count=profile_limited_stage_count,
-        max_llm_postrun_reflections_resolved=max_llm_postrun_reflections_resolved,
-        allow_postrun_fallback_reflections=allow_postrun_fallback_reflections,
-    )
 
 
 def _llm_stage_trace_payload(llm_trace: dict[str, object]) -> dict[str, object]:
@@ -224,8 +205,15 @@ def _guard_final_synthesis_for_capabilities(
 
 
 class AnalysisRunService:
-    def __init__(self, session: Session):
+    def __init__(
+        self,
+        session: Session,
+        runtime_state: RuntimeStateStore | None = None,
+    ):
         self.session = session
+        self.artifacts = RunArtifacts(session)
+        self.stage_executor = RunStageExecutor()
+        self.runtime_state = runtime_state
 
     def run(
         self,
@@ -238,21 +226,95 @@ class AnalysisRunService:
             llm_profile=llm_profile,
             output_language=output_language,
         )
-        self._load_uploaded_inputs(ctx)
-        self._run_analysis_modules(ctx)
-        self._build_evidence_and_chart_plan(ctx)
-        self._build_modeling_opportunity_plan(ctx)
-        self._build_notebook_plans(ctx)
-        self._build_report_summary_and_modeling_interpretation(ctx)
-        self._build_final_synthesis(ctx)
-        self._build_and_execute_notebook(ctx)
-        self._apply_revision_if_needed(ctx)
-        self._apply_postrun_reflections(ctx)
-        self._build_client_report(ctx)
-        self._build_agent_state(ctx)
-        self._persist_completed_artifacts(ctx)
-        self._mark_task_completed(ctx)
+        for stage in self._build_stages(ctx):
+            if self.runtime_state is not None:
+                self.runtime_state.mark_stage_started(
+                    task_id=ctx.task_id,
+                    stage_id=stage.stage_id,
+                    stage_label=stage.label,
+                    llm_enabled=bool(getattr(ctx.llm_client, "enabled", False)),
+                )
+            self.stage_executor.run_stage(stage)
+            if self.runtime_state is not None:
+                self.runtime_state.mark_stage_finished(
+                    task_id=ctx.task_id,
+                    llm_trace=ctx.llm_trace,
+                )
         return self._build_run_response(ctx)
+
+    def _build_stages(self, ctx: AnalysisRunContext) -> list[RunStage]:
+        return [
+            RunStage(
+                "load_uploaded_inputs",
+                "Load uploaded inputs",
+                lambda: self._load_uploaded_inputs(ctx),
+            ),
+            RunStage(
+                "deterministic_analysis",
+                "Run deterministic analysis",
+                lambda: self._run_analysis_modules(ctx),
+            ),
+            RunStage(
+                "evidence_and_chart_planning",
+                "Build evidence and chart plan",
+                lambda: self._build_evidence_and_chart_plan(ctx),
+            ),
+            RunStage(
+                "modeling_opportunity_planning",
+                "Build modeling opportunity plan",
+                lambda: self._build_modeling_opportunity_plan(ctx),
+            ),
+            RunStage(
+                "notebook_planning",
+                "Build notebook plans",
+                lambda: self._build_notebook_plans(ctx),
+            ),
+            RunStage(
+                "summary_and_modeling_interpretation",
+                "Build summary and modeling interpretation",
+                lambda: self._build_report_summary_and_modeling_interpretation(ctx),
+            ),
+            RunStage(
+                "final_synthesis",
+                "Build final synthesis",
+                lambda: self._build_final_synthesis(ctx),
+            ),
+            RunStage(
+                "notebook_build_and_execution",
+                "Build and execute notebook",
+                lambda: self._build_and_execute_notebook(ctx),
+            ),
+            RunStage(
+                "notebook_revision",
+                "Apply notebook revision",
+                lambda: self._apply_revision_if_needed(ctx),
+            ),
+            RunStage(
+                "postrun_reflection",
+                "Apply post-run reflection",
+                lambda: self._apply_postrun_reflections(ctx),
+            ),
+            RunStage(
+                "client_report",
+                "Build client report",
+                lambda: self._build_client_report(ctx),
+            ),
+            RunStage(
+                "agent_state",
+                "Build agent state",
+                lambda: self._build_agent_state(ctx),
+            ),
+            RunStage(
+                "completed_artifact_persistence",
+                "Persist completed artifacts",
+                lambda: self._persist_completed_artifacts(ctx),
+            ),
+            RunStage(
+                "task_completion",
+                "Mark task completed",
+                lambda: self._mark_task_completed(ctx),
+            ),
+        ]
 
     def _prepare_context(
         self,
@@ -271,8 +333,12 @@ class AnalysisRunService:
             output_language or manifest.get("output_language")
         )
         llm_profile_policy = build_llm_profile_policy(resolved_llm_profile)
-        manifest["output_language"] = resolved_output_language
-        store.save_manifest(task_id, manifest)
+        self.artifacts.record_output_language(
+            store=store,
+            task_id=task_id,
+            manifest=manifest,
+            output_language=resolved_output_language,
+        )
         run_budget = RunBudget(
             demo_safe=settings.demo_safe,
             total_seconds=settings.demo_safe_run_budget_seconds if settings.demo_safe else None,
@@ -390,29 +456,15 @@ class AnalysisRunService:
         llm_evidence_pack_path = ctx.store.save_json(
             ctx.task_id, "llm_evidence_pack.json", ctx.llm_evidence_pack
         )
-        ctx.manifest.update(
-            {
-                "section_priority": ctx.section_priority,
-                "evidence_pack": ctx.evidence_pack,
-                "llm_evidence_pack": ctx.llm_evidence_pack,
-                "chart_selection_plan": ctx.chart_selection_plan,
-                "chart_intent_plan": ctx.chart_intent_plan,
-                "chart_intent_planning_status": (ctx.chart_intent_plan.get("trace", {}) if ctx.chart_intent_plan else {}).get("status"),
-                "chart_intent_planning_mode": "shadow",
-                "llm_profile": ctx.resolved_llm_profile,
-                "llm_profile_policy": ctx.llm_profile_policy,
-                "files": {
-                    **ctx.manifest.get("files", {}),
-                    "section_priority_json": str(section_priority_path),
-                    "evidence_pack_json": str(evidence_pack_path),
-                    "llm_evidence_pack_json": str(llm_evidence_pack_path),
-                    "chart_selection_plan_json": str(chart_selection_plan_path),
-                    "chart_selection_plan_pre_intent_json": str(chart_selection_plan_pre_intent_path),
-                    "chart_intent_plan_json": str(chart_intent_plan_path),
-                },
-            }
+        self.artifacts.record_evidence_and_chart_plan(
+            ctx,
+            section_priority_path=section_priority_path,
+            evidence_pack_path=evidence_pack_path,
+            llm_evidence_pack_path=llm_evidence_pack_path,
+            chart_selection_plan_path=chart_selection_plan_path,
+            chart_selection_plan_pre_intent_path=chart_selection_plan_pre_intent_path,
+            chart_intent_plan_path=chart_intent_plan_path,
         )
-        ctx.store.save_manifest(ctx.task_id, ctx.manifest)
 
     def _build_modeling_opportunity_plan(self, ctx: AnalysisRunContext) -> None:
         frame = pd.read_csv(self._raw_csv_path(ctx))
@@ -427,16 +479,7 @@ class AnalysisRunService:
             "modeling_opportunity_plan.json",
             ctx.modeling_opportunity_plan,
         )
-        ctx.manifest.update(
-            {
-                "modeling_opportunity_plan": ctx.modeling_opportunity_plan,
-                "files": {
-                    **ctx.manifest.get("files", {}),
-                    "modeling_opportunity_plan_json": str(ctx.modeling_opportunity_plan_path),
-                },
-            }
-        )
-        ctx.store.save_manifest(ctx.task_id, ctx.manifest)
+        self.artifacts.record_modeling_opportunity_plan(ctx)
 
     def _build_notebook_plans(self, ctx: AnalysisRunContext) -> None:
         if ctx.run_budget.has_budget_for_stage("notebook_outline"):
@@ -467,7 +510,7 @@ class AnalysisRunService:
                 reason="Skipped notebook outline LLM stage because run budget was exhausted.",
             )
         ctx.llm_trace["notebook_outline"] = outline_trace.model_dump()
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
         if not _stage_enabled_by_policy(ctx, "notebook_narrative_enabled"):
             ctx.notebook_narrative, _ = build_notebook_narrative_with_trace(
@@ -525,7 +568,7 @@ class AnalysisRunService:
                 reason="Skipped notebook narrative LLM stage because run budget was exhausted.",
             )
         ctx.llm_trace["notebook_narrative"] = narrative_trace.model_dump()
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
         if ctx.run_budget.has_budget_for_stage("notebook_content"):
             content_llm_client = (
@@ -582,7 +625,7 @@ class AnalysisRunService:
                 reason="Skipped notebook content LLM stage because run budget was exhausted.",
             )
         ctx.llm_trace["notebook_content"] = content_trace.model_dump()
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
     def _build_report_summary_and_modeling_interpretation(
         self, ctx: AnalysisRunContext
@@ -617,7 +660,7 @@ class AnalysisRunService:
                 reason="Skipped report summary LLM stage because run budget was exhausted.",
             )
         ctx.llm_trace["report_summary"] = summary_trace.model_dump()
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
         if not _stage_enabled_by_policy(ctx, "modeling_interpretation_enabled"):
             modeling_interpretation, _ = build_modeling_interpretation_with_trace(
@@ -652,7 +695,7 @@ class AnalysisRunService:
                 reason="Skipped modeling interpretation LLM stage because run budget was exhausted.",
             )
         ctx.llm_trace["modeling_interpretation"] = modeling_interpretation_trace.model_dump()
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
         ctx.modeling_interpretation = modeling_interpretation if modeling_interpretation_trace.applied else None
 
         if not _stage_enabled_by_policy(ctx, "modeling_opportunity_decision_enabled"):
@@ -691,7 +734,7 @@ class AnalysisRunService:
             "modeling_opportunity_decision.json",
             ctx.modeling_opportunity_decision,
         )
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
         ctx.modeling_outcome = build_modeling_outcome(
             self._report(ctx),
@@ -742,17 +785,8 @@ class AnalysisRunService:
                 "llm_outcome_trace": outcome_trace.model_dump(),
             },
         )
-        ctx.manifest.update(
-            {
-                "modeling_outcome": ctx.modeling_outcome,
-                "files": {
-                    **ctx.manifest.get("files", {}),
-                    "modeling_outcome_json": str(ctx.modeling_outcome_path),
-                },
-            }
-        )
-        ctx.store.save_manifest(ctx.task_id, ctx.manifest)
-        self._save_llm_trace(ctx)
+        self.artifacts.record_modeling_outcome(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
     def _build_final_synthesis(self, ctx: AnalysisRunContext) -> None:
         rows = action_plan_rows(
@@ -847,16 +881,8 @@ class AnalysisRunService:
             "final_synthesis.json",
             ctx.final_synthesis or {},
         )
-        ctx.manifest.update(
-            {
-                "files": {
-                    **ctx.manifest.get("files", {}),
-                    "final_synthesis_json": str(ctx.final_synthesis_path),
-                },
-            }
-        )
-        ctx.store.save_manifest(ctx.task_id, ctx.manifest)
-        self._save_llm_trace(ctx)
+        self.artifacts.record_final_synthesis(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
     def _build_and_execute_notebook(self, ctx: AnalysisRunContext) -> None:
         report_payload = self._report(ctx).model_dump()
@@ -951,7 +977,7 @@ class AnalysisRunService:
                 reason="Skipped notebook revision decision LLM stage because run budget was exhausted.",
             )
         ctx.llm_trace["notebook_revision_decision"] = revision_trace.model_dump()
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
         ctx.revision_decisions_path = ctx.store.save_json(
             ctx.task_id, "revision_decisions.json", self._revision_plan(ctx).model_dump()
         )
@@ -1022,7 +1048,7 @@ class AnalysisRunService:
                 reason="Skipped post-run chart reflection LLM stage because run budget was exhausted.",
             )
         ctx.llm_trace["postrun_chart_reflection"] = reflection_trace.model_dump()
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
         if ctx.postrun_reflections:
             apply_postrun_chart_reflections(
                 notebook_path=self._executed_notebook_path(ctx),
@@ -1111,7 +1137,7 @@ class AnalysisRunService:
                 output_language=ctx.output_language,
             ),
         )
-        self._save_llm_trace(ctx)
+        self.artifacts.persist_llm_trace(ctx)
 
     def _build_agent_state(self, ctx: AnalysisRunContext) -> None:
         notebook_agent_state = build_notebook_agent_loop_state(
@@ -1121,7 +1147,7 @@ class AnalysisRunService:
             initial_chart_contexts=ctx.initial_chart_contexts,
             final_chart_contexts=ctx.chart_contexts,
             revision_plan=self._revision_plan(ctx),
-            llm_trace_payload=self._llm_trace_payload(ctx),
+            llm_trace_payload=self.artifacts.llm_trace_payload(ctx),
         )
         ctx.notebook_agent_state_path = ctx.store.save_json(
             ctx.task_id, "notebook_agent_state.json", notebook_agent_state.model_dump()
@@ -1132,43 +1158,10 @@ class AnalysisRunService:
             shutil.copyfile(self._executed_notebook_path(ctx), ctx.named_notebook_path)
 
     def _persist_completed_artifacts(self, ctx: AnalysisRunContext) -> None:
-        ctx.manifest.update(
-            {
-                "status": "completed",
-                "output_language": ctx.output_language,
-                "report": self._report(ctx).model_dump(),
-                "llm_trace": self._llm_trace_payload(ctx),
-                "files": {
-                    **ctx.manifest.get("files", {}),
-                    "llm_trace_json": str(self._llm_trace_path(ctx)),
-                    "report_json": str(self._report_json_path(ctx)),
-                    "notebook_outline_json": str(self._notebook_outline_path(ctx)),
-                    "notebook_narrative_json": str(self._notebook_narrative_path(ctx)),
-                    "notebook_content_json": str(self._notebook_content_path(ctx)),
-                    "modeling_opportunity_plan_json": str(ctx.modeling_opportunity_plan_path) if ctx.modeling_opportunity_plan_path else "",
-                    "modeling_opportunity_decision_json": str(ctx.modeling_opportunity_decision_path) if ctx.modeling_opportunity_decision_path else "",
-                    "revision_decisions_json": str(self._revision_decisions_path(ctx)),
-                    "notebook_agent_state_json": str(self._notebook_agent_state_path(ctx)),
-                    "postrun_chart_contexts_json": str(self._chart_contexts_path(ctx)),
-                    "postrun_chart_reflections_json": str(self._postrun_reflections_path(ctx)),
-                    "report_html": str(self._report_html_path(ctx)),
-                    "business_review_md": str(self._business_review_path(ctx)),
-                    "client_report_html": str(self._client_report_html_path(ctx).resolve()),
-                    "client_report_json": str(self._client_report_json_path(ctx).resolve()),
-                    "analysis_source_notebook": str(self._notebook_path(ctx)),
-                    "analysis_notebook_canonical": str(self._executed_notebook_path(ctx)),
-                    "analysis_notebook": str(self._named_notebook_path(ctx)),
-                },
-            }
-        )
-        ctx.store.save_manifest(ctx.task_id, ctx.manifest)
+        self.artifacts.persist_completed_artifacts(ctx)
 
     def _mark_task_completed(self, ctx: AnalysisRunContext) -> None:
-        ctx.task.status = "completed"
-        ctx.task.artifact_manifest_path = str(ctx.store.manifest_path(ctx.task_id))
-        ctx.task.dataset_type = self._report(ctx).dataset_type
-        self.session.add(ctx.task)
-        self.session.commit()
+        self.artifacts.mark_task_completed(ctx)
 
     def _build_run_response(self, ctx: AnalysisRunContext) -> RunResponse:
         return RunResponse(
@@ -1188,22 +1181,6 @@ class AnalysisRunService:
                 stage: trace_payload
                 for stage, trace_payload in ctx.llm_trace.items()
             },
-        )
-
-    def _llm_trace_payload(self, ctx: AnalysisRunContext) -> dict[str, object]:
-        return _llm_trace_artifact_payload(
-            ctx.llm_trace,
-            llm_profile=ctx.resolved_llm_profile,
-            output_language=ctx.output_language,
-            llm_profile_policy=ctx.llm_profile_policy,
-            profile_limited_stage_count=ctx.profile_limited_stage_count,
-            max_llm_postrun_reflections_resolved=ctx.max_postrun_reflections_resolved,
-            allow_postrun_fallback_reflections=ctx.allow_postrun_fallback_reflections,
-        )
-
-    def _save_llm_trace(self, ctx: AnalysisRunContext) -> None:
-        ctx.llm_trace_path = ctx.store.save_json(
-            ctx.task_id, "llm_trace.json", self._llm_trace_payload(ctx)
         )
 
     def _analysis_plan(self, ctx: AnalysisRunContext) -> AnalysisPlan:

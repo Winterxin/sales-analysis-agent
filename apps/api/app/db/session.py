@@ -7,6 +7,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.db.migrations import migrate_runtime_state_columns
 from app.db.models import Base
 
 _ENGINES: dict[str, Engine] = {}
@@ -32,7 +33,9 @@ def get_engine() -> Engine:
 
 
 def init_db() -> None:
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    migrate_runtime_state_columns(engine)
 
 
 def get_session() -> Generator[Session, None, None]:

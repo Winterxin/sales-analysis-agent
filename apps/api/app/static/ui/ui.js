@@ -2,11 +2,17 @@ const appShell = document.getElementById("app-shell");
 const fileInput = document.getElementById("csv-file");
 const fileName = document.getElementById("file-name");
 const submitButton = document.getElementById("submit-button");
+const stopButton = document.getElementById("stop-button");
 const openPreviewButton = document.getElementById("open-preview-button");
 const expandPreviewButton = document.getElementById("expand-preview-button");
 const statusNode = document.getElementById("status");
 const statusPill = document.getElementById("status-pill");
+const llmStatusPill = document.getElementById("llm-status-pill");
 const steps = [...document.querySelectorAll(".step")];
+const liveActivities = {
+  run: document.getElementById("live-activity-run"),
+  reports: document.getElementById("live-activity-reports"),
+};
 const downloadList = document.getElementById("download-list");
 const previewFrame = document.getElementById("report-preview-frame");
 const previewEmpty = document.getElementById("preview-empty");
@@ -19,12 +25,23 @@ const detailPage = document.getElementById("detail-page");
 const detailStatus = document.getElementById("detail-status");
 const detailProfile = document.getElementById("detail-profile");
 const detailModuleCount = document.getElementById("detail-module-count");
+const detailCurrentStage = document.getElementById("detail-current-stage");
+const detailLlmStatus = document.getElementById("detail-llm-status");
 const fieldTable = document.getElementById("field-table");
 const viewDetailLink = document.getElementById("view-detail-link");
 const profileInputs = [...document.querySelectorAll("input[name='llm-profile']")];
 const languageInputs = [...document.querySelectorAll("input[name='output-language']")];
 
 let currentStepIndex = 0;
+
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
+const REPORT_STAGES = new Set([
+  "client_report",
+  "agent_state",
+  "completed_artifact_persistence",
+  "task_completion",
+]);
 
 export const UI_TEXT = {
   en: {
@@ -35,8 +52,8 @@ export const UI_TEXT = {
     runMode: "Run Mode",
     quick: "Quick",
     full: "Full",
-    quickHint: "Fast complete artifacts with core LLM stages and lightweight chart selection.",
-    fullHint: "Deeper enhancement with chart intent planning, revision, and extra reflections.",
+    quickHint: "Fast run with core LLM stages.",
+    fullHint: "Deeper run with chart planning and revision.",
     chooseCsv: "Choose Sales CSV",
     uploadFile: "Upload File",
     csvHint: "Supports order details, retail transactions, and ecommerce sales data.",
@@ -48,6 +65,8 @@ export const UI_TEXT = {
     reportPreview: "Report Preview",
     previewReport: "Preview Report",
     reset: "Reset",
+    stop: "Stop",
+    stopping: "Stopping...",
     waitingForFile: "Waiting for a file.",
     waiting: "Waiting",
     analysisCompleted: "Analysis completed",
@@ -78,7 +97,23 @@ export const UI_TEXT = {
     done: "Done",
     failed: "Failed",
     running: "Running",
+    queued: "Queued",
+    cancelling: "Stopping",
+    cancelled: "Cancelled",
     agentFlow: "Agent Flow",
+    currentStage: "Current Stage",
+    llmStatus: "LLM Status",
+    llmUnknown: "LLM: unknown",
+    llmOff: "LLM: off",
+    llmPending: "LLM: pending",
+    llmCalled: "LLM: called",
+    llmFailed: "LLM: failed",
+    llmFallback: "LLM: fallback",
+    activityTitle: "Active work detected",
+    activityDefault: "Working on the current analysis stage.",
+    updatedJustNow: "Updated just now",
+    updatedSecondsAgo: "Updated {seconds}s ago",
+    stopRequested: "Stop requested. The current stage will finish before cancellation.",
     stepCreateTitle: "Create Task",
     stepCreateNote: "Prepare runtime folder and task record.",
     stepUploadTitle: "Upload and Map Fields",
@@ -112,6 +147,8 @@ export const UI_TEXT = {
     reportPreview: "报告预览",
     previewReport: "预览报告",
     reset: "重置",
+    stop: "停止",
+    stopping: "正在停止...",
     waitingForFile: "等待上传文件。",
     waiting: "等待",
     analysisCompleted: "分析完成",
@@ -142,7 +179,23 @@ export const UI_TEXT = {
     done: "完成",
     failed: "失败",
     running: "运行中",
+    queued: "排队中",
+    cancelling: "停止中",
+    cancelled: "已取消",
     agentFlow: "Agent 流程",
+    currentStage: "当前阶段",
+    llmStatus: "LLM 状态",
+    llmUnknown: "LLM：未知",
+    llmOff: "LLM：未启用",
+    llmPending: "LLM：等待调用",
+    llmCalled: "LLM：已调用",
+    llmFailed: "LLM：失败",
+    llmFallback: "LLM：已降级",
+    activityTitle: "检测到运行活动",
+    activityDefault: "正在处理当前分析阶段。",
+    updatedJustNow: "刚刚更新",
+    updatedSecondsAgo: "{seconds} 秒前更新",
+    stopRequested: "已请求停止，当前阶段完成后将停止。",
     stepCreateTitle: "创建任务",
     stepCreateNote: "准备运行目录和任务记录。",
     stepUploadTitle: "上传与字段识别",
@@ -162,6 +215,7 @@ export const elements = {
   fileName,
   form: document.getElementById("analysis-form"),
   resetButton: document.getElementById("reset-button"),
+  stopButton,
   openPreviewButton,
   closePreviewButton: document.getElementById("close-preview-button"),
   drawerTab: document.getElementById("drawer-tab"),
@@ -221,6 +275,8 @@ function refreshStepTimes() {
       timeNode.textContent = t("done");
     } else if (state === "failed") {
       timeNode.textContent = t("failed");
+    } else if (state === "cancelled") {
+      timeNode.textContent = t("cancelled");
     } else {
       timeNode.textContent = t("running");
     }
@@ -240,6 +296,78 @@ function refreshStatusText() {
   }
 }
 
+function statusLabel(status) {
+  const key = {
+    queued: "queued",
+    running: "running",
+    cancelling: "cancelling",
+    cancelled: "cancelled",
+    completed: "analysisCompleted",
+    failed: "failed",
+  }[status] || "waiting";
+  return t(key);
+}
+
+function llmLabel(status = "unknown") {
+  const key = {
+    off: "llmOff",
+    pending: "llmPending",
+    called: "llmCalled",
+    failed: "llmFailed",
+    fallback: "llmFallback",
+  }[status] || "llmUnknown";
+  return t(key);
+}
+
+function relativeHeartbeatText(heartbeatAt) {
+  if (!heartbeatAt) {
+    return "-";
+  }
+  const parsed = Date.parse(heartbeatAt);
+  if (Number.isNaN(parsed)) {
+    return "-";
+  }
+  const seconds = Math.max(0, Math.round((Date.now() - parsed) / 1000));
+  if (seconds <= 2) {
+    return t("updatedJustNow");
+  }
+  return t("updatedSecondsAgo").replace("{seconds}", String(seconds));
+}
+
+function localizedActivityMessage(message = "") {
+  const trimmed = String(message || "").trim();
+  if (normalizedLanguage(selectedOutputLanguage()) !== "zh-CN") {
+    return trimmed;
+  }
+  return (
+    {
+      "Queued for background analysis.": "已进入后台分析队列。",
+      "Working on the current analysis stage.": "正在处理当前分析阶段。",
+      "Building final reports and artifacts.": "正在生成最终报告和产物。",
+      "Stop requested. The current stage will finish before cancellation.":
+        "已请求停止，当前阶段完成后将停止。",
+    }[trimmed] || trimmed
+  );
+}
+
+function activityTargetForTask(task) {
+  if (!ACTIVE_STATUSES.has(task?.status)) {
+    return null;
+  }
+  return REPORT_STAGES.has(task?.current_stage) ? liveActivities.reports : liveActivities.run;
+}
+
+function setLiveActivityForNode(node, { message = "", heartbeatAt = "" } = {}) {
+  const note = node.querySelector(".activity-note");
+  const time = node.querySelector(".activity-time");
+  if (note) {
+    note.textContent = localizedActivityMessage(message) || t("activityDefault");
+  }
+  if (time) {
+    time.textContent = relativeHeartbeatText(heartbeatAt);
+  }
+}
+
 export function applyUiLanguage() {
   const language = normalizedLanguage(selectedOutputLanguage());
   document.documentElement.lang = language === "zh-CN" ? "zh-CN" : "en";
@@ -253,6 +381,15 @@ export function applyUiLanguage() {
   refreshStepTimes();
   refreshPreviewButtonText();
   refreshStatusText();
+  setLlmStatus(llmStatusPill.dataset.llmStatus || "unknown");
+  for (const activity of Object.values(liveActivities)) {
+    if (!activity.classList.contains("hidden")) {
+      setLiveActivityForNode(activity, {
+        message: activity.dataset.message || "",
+        heartbeatAt: activity.dataset.heartbeatAt || "",
+      });
+    }
+  }
   expandPreviewButton.textContent = appShell.classList.contains("preview-expanded")
     ? t("collapsePreview")
     : t("expand");
@@ -313,6 +450,7 @@ export function setPage(page) {
 export function setRunning(isRunning) {
   appShell.classList.toggle("running", isRunning);
   submitButton.disabled = isRunning;
+  elements.resetButton.disabled = isRunning;
   fileInput.disabled = isRunning;
   for (const input of profileInputs) {
     input.disabled = isRunning;
@@ -321,6 +459,45 @@ export function setRunning(isRunning) {
     input.disabled = isRunning;
   }
   submitButton.textContent = isRunning ? t("analyzing") : t("startAnalysis");
+}
+
+export function setStopVisible(visible) {
+  stopButton.hidden = !visible;
+}
+
+export function setStopEnabled(enabled, { stopping = false } = {}) {
+  stopButton.disabled = !enabled;
+  stopButton.textContent = stopping ? t("stopping") : t("stop");
+}
+
+export function setLlmStatus(status = "unknown") {
+  const normalized = ["off", "pending", "called", "failed", "fallback"].includes(status)
+    ? status
+    : "unknown";
+  llmStatusPill.dataset.llmStatus = normalized;
+  llmStatusPill.textContent = llmLabel(normalized);
+}
+
+export function setLiveActivity({ visible = false, task = null } = {}) {
+  for (const activity of Object.values(liveActivities)) {
+    activity.classList.add("hidden");
+    delete activity.dataset.message;
+    delete activity.dataset.heartbeatAt;
+  }
+  if (!visible || !task) {
+    return;
+  }
+  const target = activityTargetForTask(task);
+  if (!target) {
+    return;
+  }
+  target.dataset.message = task.status_message || "";
+  target.dataset.heartbeatAt = task.heartbeat_at || "";
+  setLiveActivityForNode(target, {
+    message: task.status_message || "",
+    heartbeatAt: task.heartbeat_at || "",
+  });
+  target.classList.remove("hidden");
 }
 
 export function setStatus(text, isError = false, statusKey = "") {
@@ -340,7 +517,13 @@ export function setStep(index, state) {
   step.className = `step ${state}`;
   step.dataset.stepState = state;
   step.querySelector(".step-time").textContent =
-    state === "done" ? t("done") : state === "failed" ? t("failed") : t("running");
+    state === "done"
+      ? t("done")
+      : state === "failed"
+        ? t("failed")
+        : state === "cancelled"
+          ? t("cancelled")
+          : t("running");
 }
 
 export function resetSteps() {
@@ -348,6 +531,74 @@ export function resetSteps() {
     step.className = "step";
     delete step.dataset.stepState;
     step.querySelector(".step-time").textContent = "-";
+  }
+}
+
+function applyStepState(index, state) {
+  const step = steps[index];
+  if (!step) {
+    return;
+  }
+  step.className = `step ${state}`.trim();
+  if (state) {
+    step.dataset.stepState = state;
+  } else {
+    delete step.dataset.stepState;
+  }
+  const timeNode = step.querySelector(".step-time");
+  if (!timeNode) {
+    return;
+  }
+  if (state === "done") {
+    timeNode.textContent = t("done");
+  } else if (state === "failed") {
+    timeNode.textContent = t("failed");
+  } else if (state === "cancelled") {
+    timeNode.textContent = t("cancelled");
+  } else if (state === "active") {
+    timeNode.textContent = t("running");
+  } else {
+    timeNode.textContent = "-";
+  }
+}
+
+function resetStepState() {
+  for (let index = 0; index < steps.length; index += 1) {
+    applyStepState(index, "");
+  }
+}
+
+function activeStepIndexForTask(task) {
+  if (REPORT_STAGES.has(task?.current_stage)) {
+    return 4;
+  }
+  if (["queued", "running", "cancelling"].includes(task?.status)) {
+    return 3;
+  }
+  if (task?.status === "uploaded") {
+    return 2;
+  }
+  return 0;
+}
+
+function applyTaskSteps(task) {
+  resetStepState();
+  if (task.status === "completed") {
+    for (let index = 0; index < steps.length; index += 1) {
+      applyStepState(index, "done");
+    }
+    return;
+  }
+  const activeIndex = activeStepIndexForTask(task);
+  for (let index = 0; index < activeIndex; index += 1) {
+    applyStepState(index, "done");
+  }
+  if (task.status === "failed") {
+    applyStepState(activeIndex, "failed");
+  } else if (task.status === "cancelled") {
+    applyStepState(activeIndex, "cancelled");
+  } else {
+    applyStepState(activeIndex, "active");
   }
 }
 
@@ -402,6 +653,10 @@ export function resetUi({ clearFile = false } = {}) {
   closePreview();
   resetSteps();
   setStatus(t("waitingForFile"), false, "waitingForFile");
+  setStopVisible(false);
+  setStopEnabled(false);
+  setLlmStatus("unknown");
+  setLiveActivity({ visible: false });
   viewDetailLink.classList.add("hidden");
   if (clearFile) {
     fileInput.value = "";
@@ -415,32 +670,60 @@ export function resetUi({ clearFile = false } = {}) {
   detailStatus.textContent = "-";
   detailProfile.textContent = "-";
   detailModuleCount.textContent = "-";
+  detailCurrentStage.textContent = "-";
+  detailLlmStatus.textContent = "-";
   fieldTable.dataset.emptyState = "waiting";
   fieldTable.innerHTML = `<tr><td colspan="2">${t("waitingForUpload")}</td></tr>`;
 }
 
-export function setDetailState({ status = "-", profile = "-", moduleCount = "-", fieldMapping } = {}) {
+export function setDetailState({
+  status = "-",
+  profile = "-",
+  moduleCount = "-",
+  currentStage = "-",
+  llmStatus = "-",
+  fieldMapping,
+} = {}) {
   detailStatus.textContent = status;
   detailProfile.textContent = profile;
   detailModuleCount.textContent = moduleCount;
+  detailCurrentStage.textContent = currentStage || "-";
+  detailLlmStatus.textContent = llmStatus || "-";
   if (fieldMapping !== undefined) {
     renderFieldMapping(fieldMapping);
   }
 }
 
 export function restoreTaskView(task) {
-  renderDownloads(task.taskId);
-  setPreviewUrl(task.taskId);
+  const taskId = task.task_id || task.taskId;
+  if (task.status === "completed") {
+    renderDownloads(taskId);
+    setPreviewUrl(taskId);
+  } else {
+    refreshDownloadPlaceholders();
+  }
   setDetailState({
-    status: task.status || "completed",
+    status: task.status || "-",
     profile: task.profile || "-",
-    moduleCount: task.moduleCount || "-",
+    moduleCount: task.moduleCount || task.artifact_manifest?.report?.module_count || "-",
+    currentStage: task.current_stage_label || task.current_stage || "-",
+    llmStatus: llmLabel(task.llm_status || "unknown"),
     fieldMapping: task.fieldMapping,
   });
-  for (let index = 0; index < steps.length; index += 1) {
-    setStep(index, "done");
+  applyTaskSteps(task);
+  setLlmStatus(task.llm_status || "unknown");
+  setLiveActivity({ visible: ACTIVE_STATUSES.has(task.status), task });
+  setStopVisible(ACTIVE_STATUSES.has(task.status));
+  setStopEnabled(task.status !== "cancelling", { stopping: task.status === "cancelling" });
+  setRunning(ACTIVE_STATUSES.has(task.status));
+  statusPill.textContent = statusLabel(task.status);
+  if (task.status === "failed") {
+    setStatus(task.error_message || t("analysisFailed"), true);
+  } else if (task.status === "cancelled") {
+    setStatus(statusLabel("cancelled"), false);
+  } else if (task.status === "completed") {
+    setStatus(t("analysisCompleted"), false, "analysisCompleted");
   }
-  setStatus(t("restoredLatestTask"), false, "restoredLatestTask");
 }
 
 export function showFailure(message) {

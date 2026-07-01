@@ -3,8 +3,27 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+import time
 
 from fastapi.testclient import TestClient
+
+
+def _wait_for_terminal_task(
+    client: TestClient,
+    task_id: str,
+    *,
+    timeout_seconds: float = 120.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    last_body: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/v1/analysis/tasks/{task_id}")
+        assert response.status_code == 200
+        last_body = response.json()
+        if last_body.get("status") in {"completed", "failed", "cancelled"}:
+            return last_body
+        time.sleep(0.25)
+    raise AssertionError(f"Task {task_id} did not finish; last body={last_body}")
 
 
 def test_full_analysis_flow_creates_report_and_notebook(
@@ -31,23 +50,17 @@ def test_full_analysis_flow_creates_report_and_notebook(
     run_response = client.post(f"/api/v1/analysis/tasks/{task_id}/run")
     assert run_response.status_code == 202
     run_body = run_response.json()
-    assert run_body["status"] == "completed"
+    assert run_body["status"] in {"queued", "running"}
+    assert run_body["task_id"] == task_id
+    assert "report" not in run_body
     assert run_body["output_language"] == "en"
-    assert run_body["report"]["task_id"] == task_id
-    assert len(run_body["report"]["modules"]) >= 4
-    assert run_body["business_review"]["filename"] == "business_review.md"
-    assert run_body["notebook"]["filename"] == "sales_orders.ipynb"
-    assert run_body["llm_trace"]["notebook_outline"]["status"] == "disabled"
-    assert run_body["llm_trace"]["notebook_narrative"]["status"] == "disabled"
-    assert run_body["llm_trace"]["notebook_content"]["status"] == "disabled"
-    assert run_body["llm_trace"]["report_summary"]["status"] == "disabled"
-    assert run_body["llm_trace"]["notebook_revision_decision"]["status"] == "disabled"
-    assert run_body["llm_trace"]["postrun_chart_reflection"]["status"] == "disabled"
 
-    task_response = client.get(f"/api/v1/analysis/tasks/{task_id}")
-    assert task_response.status_code == 200
-    task_body = task_response.json()
+    task_body = _wait_for_terminal_task(client, task_id)
     assert task_body["status"] == "completed"
+    assert task_body["current_stage"] == "task_completion"
+    assert task_body["heartbeat_at"]
+    assert task_body["finished_at"]
+    assert task_body["llm_status"] == "off"
     assert task_body["artifact_manifest"]["files"]["analysis_notebook"].endswith("sales_orders.ipynb")
     assert task_body["artifact_manifest"]["files"]["analysis_notebook_canonical"].endswith(
         "analysis.executed.ipynb"
@@ -90,7 +103,6 @@ def test_full_analysis_flow_creates_report_and_notebook(
     assert Path(task_body["artifact_manifest"]["files"]["chart_selection_plan_pre_intent_json"]).exists()
     assert task_body["artifact_manifest"]["chart_intent_planning_mode"] == "shadow"
     assert task_body["artifact_manifest"]["chart_intent_planning_status"] == "skipped"
-    assert "summary" not in run_body["llm_trace"]
     llm_trace_payload = json.loads(
         Path(task_body["artifact_manifest"]["files"]["llm_trace_json"]).read_text(encoding="utf-8")
     )
@@ -161,7 +173,8 @@ def test_run_accepts_quick_llm_profile_and_records_policy(
     run_response = client.post(f"/api/v1/analysis/tasks/{task_id}/run?llm_profile=quick&output_language=en")
 
     assert run_response.status_code == 202
-    task_body = client.get(f"/api/v1/analysis/tasks/{task_id}").json()
+    assert run_response.json()["status"] in {"queued", "running"}
+    task_body = _wait_for_terminal_task(client, task_id)
     manifest = task_body["artifact_manifest"]
     trace_payload = json.loads(Path(manifest["files"]["llm_trace_json"]).read_text(encoding="utf-8"))
 
@@ -211,7 +224,7 @@ def test_run_accepts_zh_cn_output_language_without_breaking_chinese_artifacts(
 
     assert run_response.status_code == 202
     assert run_response.json()["output_language"] == "zh-CN"
-    task_body = client.get(f"/api/v1/analysis/tasks/{task_id}").json()
+    task_body = _wait_for_terminal_task(client, task_id)
     manifest = task_body["artifact_manifest"]
     trace_payload = json.loads(Path(manifest["files"]["llm_trace_json"]).read_text(encoding="utf-8"))
     notebook_text = Path(manifest["files"]["analysis_notebook_canonical"]).read_text(encoding="utf-8")
@@ -258,7 +271,7 @@ def test_zh_client_report_keeps_profit_metrics_when_discount_field_is_missing(
 
     run_response = client.post(f"/api/v1/analysis/tasks/{task_id}/run?output_language=zh-CN")
     assert run_response.status_code == 202
-    manifest = client.get(f"/api/v1/analysis/tasks/{task_id}").json()["artifact_manifest"]
+    manifest = _wait_for_terminal_task(client, task_id)["artifact_manifest"]
     client_report_payload = json.loads(Path(manifest["files"]["client_report_json"]).read_text(encoding="utf-8"))
     report_payload = json.loads(Path(manifest["files"]["report_json"]).read_text(encoding="utf-8"))
 
@@ -292,7 +305,7 @@ def test_quick_english_artifacts_do_not_expose_common_chinese_headings(
     )
 
     assert run_response.status_code == 202
-    manifest = client.get(f"/api/v1/analysis/tasks/{task_id}").json()["artifact_manifest"]
+    manifest = _wait_for_terminal_task(client, task_id)["artifact_manifest"]
     files = manifest["files"]
     source_notebook_text = Path(files["analysis_source_notebook"]).read_text(encoding="utf-8")
     executed_notebook_text = Path(files["analysis_notebook_canonical"]).read_text(encoding="utf-8")
@@ -507,7 +520,8 @@ def test_demo_safe_run_skips_low_priority_llm_stages(
     run_response = client.post(f"/api/v1/analysis/tasks/{task_id}/run")
 
     assert run_response.status_code == 202
-    trace = run_response.json()["llm_trace"]
+    manifest = _wait_for_terminal_task(client, task_id)["artifact_manifest"]
+    trace = manifest["llm_trace"]
     assert trace["notebook_outline"]["status"] == "disabled"
     assert trace["notebook_content"]["status"] == "disabled"
     assert trace["postrun_chart_reflection"]["status"] == "disabled"
