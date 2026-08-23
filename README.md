@@ -44,7 +44,8 @@ A completed run can produce:
 - Business review and client report artifacts
 - Runtime task status with progress heartbeat, refresh recovery, LLM call state, and cooperative cancellation
 - Optional LLM enrichment through an OpenAI-compatible Chat Completions endpoint
-- Bounded analysis Agent loop with a deterministic tool whitelist and fallback
+- Bounded analysis Agent loop with validated Tool Calls, a deterministic
+  sufficiency guard, tool whitelist, and fallback
 - Structured per-node Agent trace and reproducible scripted Golden Eval
 
 ## Supported Data Shape
@@ -163,12 +164,13 @@ and does not represent production data.
 - FastAPI serves the upload, task, artifact, and static UI routes.
 - The ingestion layer validates CSV files and builds a dataset profile.
 - Schema mapping converts flexible column names into canonical sales fields.
-- A LangGraph subgraph plans, validates, executes, inspects, and can replan only
-  the analysis-module selection stage.
-- The LLM selects registered tools; deterministic pandas modules remain the only
-  component that computes tables, metrics, and chart-ready data.
-- Harness guards enforce field capabilities, tool limits, round limits,
-  duplicate prevention, no-progress termination, and run budget checks.
+- A LangGraph subgraph plans Tool Calls (`name + arguments`), validates, executes,
+  inspects, applies a deterministic sufficiency floor, and can replan only the
+  analysis-module selection stage.
+- The LLM proposes registered tools and arguments; deterministic pandas modules
+  remain the only component that computes tables, metrics, and chart-ready data.
+- Harness guards enforce argument schemas, dataset capabilities, signature-based
+  duplicate prevention, tool/round limits, no-progress termination, and budget.
 - Disabled, failed, invalid, or budget-blocked Agent decisions fall back to the
   existing deterministic analysis plan.
 - Notebook assembly produces executable and executed notebook artifacts.
@@ -178,8 +180,11 @@ See [docs/analysis-agent-architecture.md](docs/analysis-agent-architecture.md)
 for the analysis subgraph boundary and state contract.
 
 This is a bounded, constrained agentic workflow, not a fully autonomous Agent.
-The model proposes registered tools; the Harness owns validation and termination,
-and deterministic modules own every numeric result.
+The model proposes registered Tool Calls; the Harness owns validation and
+termination, and deterministic modules own every numeric result. The model has
+no arbitrary Python or code-execution permission. Identical calls are blocked by
+a stable tool-name-plus-normalized-arguments signature; distinct arguments are
+allowed only where a ToolSpec explicitly permits them.
 
 ## Failure Behavior
 

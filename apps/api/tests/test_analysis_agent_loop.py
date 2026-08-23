@@ -316,6 +316,7 @@ def test_agent_plan_execute_inspect_finalize(sample_csv_path: Path) -> None:
         "execute_tools",
         "build_evidence",
         "inspect",
+        "sufficiency_guard",
         "finalize",
     ]
     assert result.report.module_count == 2
@@ -519,3 +520,114 @@ def test_tool_executor_exception_is_traced_and_falls_back(sample_csv_path: Path)
         event for event in result.trace.events if event.node == "execute_tools"
     )
     assert "injected tool failure" in execution_event.tool_errors["sales_trend_analysis"]
+
+
+def test_sufficiency_guard_forces_replan_then_finalizes(sample_csv_path: Path) -> None:
+    llm = FakeAgentLLM(
+        plans=[
+            {
+                "tool_calls": [
+                    {"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}
+                ],
+                "reasoning_summary": "trend first",
+            },
+            {
+                "tool_calls": [
+                    {"tool_name": "discount_profit_analysis", "arguments": {}}
+                ],
+                "reasoning_summary": "fill profit gap",
+            },
+        ],
+        inspections=[
+            {"status": "enough", "reason": "premature"},
+            {"status": "enough", "reason": "complete"},
+        ],
+    )
+
+    result = run_analysis_agent(
+        task_id="task",
+        csv_path=sample_csv_path,
+        schema_mapping=_schema(),
+        dataset_profile={"row_count": 10},
+        user_goal="分析利润",
+        fallback_plan=_fallback_plan(),
+        llm_client=llm,
+        run_budget=_budget(),
+        max_rounds=2,
+    )
+
+    guard_events = [event for event in result.trace.events if event.node == "sufficiency_guard"]
+    assert [event.action for event in guard_events] == ["replan", "finalize"]
+    assert result.state.termination_reason == "evidence_sufficient"
+    assert llm.plan_payloads[1]["guard_suggested_tool_calls"] == [
+        {"tool_name": "discount_profit_analysis", "arguments": {}}
+    ]
+
+
+def test_sufficiency_guard_finalizes_when_capability_is_unavailable(
+    sample_csv_path: Path,
+) -> None:
+    schema = _schema().model_copy(deep=True)
+    schema.field_mapping = {
+        source: target
+        for source, target in schema.field_mapping.items()
+        if target != "profit"
+    }
+    llm = FakeAgentLLM(
+        plans=[
+            {
+                "tool_calls": [
+                    {"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}
+                ],
+                "reasoning_summary": "available evidence",
+            }
+        ],
+        inspections=[{"status": "enough", "reason": "done"}],
+    )
+
+    result = run_analysis_agent(
+        task_id="task",
+        csv_path=sample_csv_path,
+        schema_mapping=schema,
+        dataset_profile={"row_count": 10},
+        user_goal="分析利润",
+        fallback_plan=AnalysisPlan(analysis_plan=[]),
+        llm_client=llm,
+        run_budget=_budget(),
+    )
+
+    assert result.state.termination_reason == "capability_unavailable"
+    guard = next(event for event in result.trace.events if event.node == "sufficiency_guard")
+    assert guard.unavailable_capabilities == ["profit"]
+    assert guard.action == "limited_finalize"
+
+
+def test_sufficiency_guard_limited_finalize_at_max_rounds(sample_csv_path: Path) -> None:
+    llm = FakeAgentLLM(
+        plans=[
+            {
+                "tool_calls": [
+                    {"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}
+                ],
+                "reasoning_summary": "trend only",
+            }
+        ],
+        inspections=[{"status": "enough", "reason": "premature"}],
+    )
+
+    result = run_analysis_agent(
+        task_id="task",
+        csv_path=sample_csv_path,
+        schema_mapping=_schema(),
+        dataset_profile={"row_count": 10},
+        user_goal="分析利润",
+        fallback_plan=_fallback_plan(),
+        llm_client=llm,
+        run_budget=_budget(),
+        max_rounds=1,
+    )
+
+    assert result.state.termination_reason == "sufficiency_guard_unresolved"
+    guard = next(event for event in result.trace.events if event.node == "sufficiency_guard")
+    assert guard.missing_capabilities == ["profit"]
+    assert guard.action == "limited_finalize"

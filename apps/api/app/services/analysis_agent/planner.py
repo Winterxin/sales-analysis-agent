@@ -2,16 +2,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.services.analysis_agent.state import SalesAnalysisAgentState
+from app.services.analysis_agent.tool_calls import AnalysisToolCall
 
 
 class PlannerDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    selected_tools: list[str]
+    tool_calls: list[AnalysisToolCall]
     reasoning_summary: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def adapt_legacy_selected_tools(cls, value: object) -> object:
+        if isinstance(value, dict) and "tool_calls" not in value and "selected_tools" in value:
+            adapted = dict(value)
+            adapted["tool_calls"] = [
+                {"tool_name": name, "arguments": {}}
+                for name in adapted.pop("selected_tools")
+            ]
+            return adapted
+        return value
 
 
 class InspectionDecision(BaseModel):
@@ -48,6 +61,9 @@ def plan_with_llm(
         "current_evidence": [item.model_dump() for item in state.evidence],
         "missing_questions": state.missing_questions,
         "inspect_suggested_tools": state.suggested_tools,
+        "guard_suggested_tool_calls": [
+            call.model_dump() for call in state.suggested_tool_calls
+        ],
         "round": state.round + 1,
         "max_tools_per_round": state.max_tools_per_round,
         "mode": mode,
@@ -57,7 +73,7 @@ def plan_with_llm(
             "Choose 2-4 tools when useful and never return Python code.",
             "On replan, choose only tools that can add evidence not already collected.",
             "On plan correction, fix every harness rejection and choose only available tools.",
-            "Return JSON with selected_tools and reasoning_summary.",
+            "Return JSON with tool_calls (tool_name + arguments) and reasoning_summary.",
         ],
     }
     raw = llm_client.plan_analysis_tools(payload)

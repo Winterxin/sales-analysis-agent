@@ -5,6 +5,8 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
+from app.services.analysis_agent.tool_calls import AnalysisToolCall
+
 
 class AgentTraceEvent(BaseModel):
     sequence: int
@@ -20,6 +22,18 @@ class AgentTraceEvent(BaseModel):
     missing_questions: list[str] = Field(default_factory=list)
     suggested_tools: list[str] = Field(default_factory=list)
     executed_tools: list[str] = Field(default_factory=list)
+    requested_tool_calls: list[AnalysisToolCall] = Field(default_factory=list)
+    accepted_tool_calls: list[AnalysisToolCall] = Field(default_factory=list)
+    rejected_tool_calls: list[AnalysisToolCall] = Field(default_factory=list)
+    executed_tool_calls: list[AnalysisToolCall] = Field(default_factory=list)
+    argument_validation_errors: list[str] = Field(default_factory=list)
+    inspector_decision: str | None = None
+    guard_passed: bool | None = None
+    recognized_goal_capabilities: list[str] = Field(default_factory=list)
+    satisfied_capabilities: list[str] = Field(default_factory=list)
+    missing_capabilities: list[str] = Field(default_factory=list)
+    unavailable_capabilities: list[str] = Field(default_factory=list)
+    action: str | None = None
     tool_errors: dict[str, str] = Field(default_factory=dict)
     evidence_before_count: int | None = None
     evidence_after_count: int | None = None
@@ -86,9 +100,9 @@ def build_analysis_agent_trace_summary(
         "inspector_calls": sum(
             event.llm_call_count for event in events if event.node == "inspect"
         ),
-        "requested_tool_calls": sum(len(event.requested_tools) for event in planner_events),
-        "accepted_tool_calls": sum(len(event.accepted_tools) for event in validation_events),
-        "rejected_tool_calls": sum(len(event.rejected_tools) for event in validation_events),
+        "requested_tool_calls": sum(len(event.requested_tool_calls or event.requested_tools) for event in planner_events),
+        "accepted_tool_calls": sum(len(event.accepted_tool_calls or event.accepted_tools) for event in validation_events),
+        "rejected_tool_calls": sum(len(event.rejected_tool_calls or event.rejected_tools) for event in validation_events),
         "successful_tool_calls": sum(len(event.executed_tools) for event in execute_events),
         "failed_tool_calls": sum(len(event.tool_errors) for event in execute_events),
         "replans": sum(event.node == "replan" for event in events),

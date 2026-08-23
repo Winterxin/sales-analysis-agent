@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.report import ModuleReport
 from app.services.analysis_agent.trace import AgentTraceEvent
+from app.services.analysis_agent.tool_calls import AnalysisToolCall
 
 
 DEFAULT_USER_GOAL = (
@@ -18,10 +19,13 @@ class AvailableAnalysisTool(BaseModel):
     description: str
     required_fields: list[str] = Field(default_factory=list)
     optional_fields: list[str] = Field(default_factory=list)
+    argument_schema: dict[str, object] = Field(default_factory=dict)
 
 
 class ToolExecutionRecord(BaseModel):
     tool_name: str
+    arguments: dict[str, object] = Field(default_factory=dict)
+    call_signature: str = ""
     round: int
     success: bool
     result_summary: str | None = None
@@ -43,8 +47,8 @@ class SalesAnalysisAgentState(BaseModel):
     user_goal: str = DEFAULT_USER_GOAL
     dataset_profile: dict[str, object] = Field(default_factory=dict)
     available_tools: list[AvailableAnalysisTool] = Field(default_factory=list)
-    selected_tools: list[str] = Field(default_factory=list)
-    requested_tools: list[str] = Field(default_factory=list)
+    selected_tool_calls: list[AnalysisToolCall] = Field(default_factory=list)
+    requested_tool_calls: list[AnalysisToolCall] = Field(default_factory=list)
     executed_tools: list[ToolExecutionRecord] = Field(default_factory=list)
     evidence: list[AgentEvidence] = Field(default_factory=list)
     round: int = 0
@@ -52,6 +56,7 @@ class SalesAnalysisAgentState(BaseModel):
     decision_reason: str = ""
     missing_questions: list[str] = Field(default_factory=list)
     suggested_tools: list[str] = Field(default_factory=list)
+    suggested_tool_calls: list[AnalysisToolCall] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     termination_reason: str | None = None
     consecutive_no_progress_rounds: int = 0
@@ -66,6 +71,7 @@ class SalesAnalysisAgentState(BaseModel):
     fallback_reason: str | None = None
     report_modules: list[ModuleReport] = Field(default_factory=list, exclude=True)
     current_round_modules: list[ModuleReport] = Field(default_factory=list, exclude=True)
+    current_round_tool_calls: list[AnalysisToolCall] = Field(default_factory=list, exclude=True)
     trace_events: list[AgentTraceEvent] = Field(default_factory=list, exclude=True)
 
     def public_payload(self) -> dict[str, object]:

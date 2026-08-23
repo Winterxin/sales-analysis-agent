@@ -13,7 +13,7 @@ from app.schemas.report import AnalysisReport, ModuleReport
 from app.schemas.schema_mapping import SchemaMapping
 from app.services.analysis_agent.executor import execute_analysis_tools
 from app.services.analysis_agent.facts import evidence_fact_fingerprint, evidence_fact_set
-from app.services.analysis_agent.guards import validate_selected_tools
+from app.services.analysis_agent.guards import validate_tool_calls
 from app.services.analysis_agent.planner import inspect_with_llm, plan_with_llm
 from app.services.analysis_agent.state import (
     AgentEvidence,
@@ -21,6 +21,11 @@ from app.services.analysis_agent.state import (
     DEFAULT_USER_GOAL,
     SalesAnalysisAgentState,
     ToolExecutionRecord,
+)
+from app.services.analysis_agent.sufficiency import evaluate_sufficiency
+from app.services.analysis_agent.tool_calls import (
+    AnalysisToolCall,
+    normalized_call_signature,
 )
 from app.services.analysis_agent.trace import (
     AnalysisAgentTrace,
@@ -70,6 +75,7 @@ def _available_tool_state(
             description=spec.description,
             required_fields=sorted(spec.required_fields),
             optional_fields=sorted(spec.optional_fields),
+            argument_schema=spec.argument_model.model_json_schema(),
         )
         for spec in registry.available_specs(available_fields, dataset_profile)
     ]
@@ -89,7 +95,12 @@ def _report_from_modules(
     )
 
 
-def _module_evidence(module: ModuleReport, *, round_number: int) -> AgentEvidence | None:
+def _module_evidence(
+    module: ModuleReport,
+    *,
+    round_number: int,
+    call_signature: str = "",
+) -> AgentEvidence | None:
     signals = [
         f"table:{name}:rows:{len(rows)}"
         for name, rows in sorted(module.tables.items())
@@ -99,7 +110,11 @@ def _module_evidence(module: ModuleReport, *, round_number: int) -> AgentEvidenc
     if not (module.summary_metrics or module.findings or signals):
         return None
     return AgentEvidence(
-        evidence_id=f"round:{round_number}:tool:{module.module_id}",
+        evidence_id=(
+            f"round:{round_number}:call:{call_signature}:tool:{module.module_id}"
+            if call_signature
+            else f"round:{round_number}:tool:{module.module_id}"
+        ),
         tool_name=module.module_id,
         round=round_number,
         summary_metrics=module.summary_metrics,
@@ -244,7 +259,7 @@ def _build_graph(runtime: _AgentRuntime):
                     correction_errors=correction_errors,
                 ),
             )
-        requested = list(decision.selected_tools) if decision is not None else []
+        requested = list(decision.tool_calls) if decision is not None else []
         reason = decision.reasoning_summary if decision is not None else None
         event_round = state.round if node == "plan_correction" else state.round + 1
         events = append_trace_event(
@@ -252,7 +267,8 @@ def _build_graph(runtime: _AgentRuntime):
             event_type=node,
             node=node,
             round=event_round,
-            requested_tools=requested,
+            requested_tools=[call.tool_name for call in requested],
+            requested_tool_calls=requested,
             guard_errors=correction_errors or [],
             decision="plan" if decision is not None else "fallback",
             decision_reason=reason or (str(error) if error else ""),
@@ -269,10 +285,11 @@ def _build_graph(runtime: _AgentRuntime):
                 "trace_events": events,
             }
         return {
-            "requested_tools": requested,
-            "selected_tools": requested,
+            "requested_tool_calls": requested,
+            "selected_tool_calls": requested,
             "decision": "plan",
             "decision_reason": reason or "",
+            "suggested_tool_calls": [],
             "round": event_round,
             "plan_corrections": (
                 state.plan_corrections + 1
@@ -298,9 +315,16 @@ def _build_graph(runtime: _AgentRuntime):
         return _planner_node(state, node="replan", replan=True)
 
     def validate_plan_node(state: SalesAnalysisAgentState) -> dict[str, object]:
-        successful = {item.tool_name for item in state.executed_tools if item.success}
-        result = validate_selected_tools(
-            state.requested_tools,
+        successful = {
+            item.call_signature for item in state.executed_tools if item.success
+        }
+        successful.update(
+            f"{item.tool_name}:{item.call_signature}"
+            for item in state.executed_tools
+            if item.success
+        )
+        result = validate_tool_calls(
+            state.requested_tool_calls,
             registry=runtime.registry,
             available_fields=available_fields,
             dataset_profile=state.dataset_profile,
@@ -313,7 +337,7 @@ def _build_graph(runtime: _AgentRuntime):
             fallback_reason = state.fallback_reason
             termination_reason = state.termination_reason
         elif state.round == 1 and not state.evidence:
-            if not state.requested_tools:
+            if not state.requested_tool_calls:
                 action = "fallback"
                 fallback_reason = "initial_plan_empty_fallback"
             elif state.plan_corrections < state.max_plan_corrections:
@@ -336,16 +360,22 @@ def _build_graph(runtime: _AgentRuntime):
             event_type="plan_validation",
             node="validate_plan",
             round=state.round,
-            requested_tools=state.requested_tools,
+            requested_tools=[call.tool_name for call in state.requested_tool_calls],
             accepted_tools=result.accepted_tools,
             rejected_tools=result.rejected_tools,
+            requested_tool_calls=state.requested_tool_calls,
+            accepted_tool_calls=result.accepted_tool_calls,
+            rejected_tool_calls=result.rejected_tool_calls,
+            argument_validation_errors=[
+                error for error in result.errors if "argument" in error
+            ],
             guard_errors=result.errors,
             decision=action,
             budget_remaining_ms=runtime.run_budget.remaining_ms(),
             termination_reason=termination_reason,
         )
         return {
-            "selected_tools": result.accepted_tools,
+            "selected_tool_calls": result.accepted_tool_calls,
             "errors": [*state.errors, *result.errors],
             "last_guard_errors": result.errors,
             "validation_action": action,
@@ -362,20 +392,23 @@ def _build_graph(runtime: _AgentRuntime):
         }
 
     def execute_tools_node(state: SalesAnalysisAgentState) -> dict[str, object]:
-        reports, execution_errors = execute_analysis_tools(
-            state.selected_tools,
+        reports, execution_errors, successful_calls = execute_analysis_tools(
+            state.selected_tool_calls,
             csv_path=runtime.csv_path,
             schema_mapping=runtime.schema_mapping,
             registry=runtime.registry,
         )
         report_by_name = {report.module_id: report for report in reports}
         records = list(state.executed_tools)
-        for tool_name in state.selected_tools:
+        for call in state.selected_tool_calls:
+            tool_name = call.tool_name
             report = report_by_name.get(tool_name)
             error = execution_errors.get(tool_name)
             records.append(
                 ToolExecutionRecord(
                     tool_name=tool_name,
+                    arguments=call.arguments,
+                    call_signature=normalized_call_signature(tool_name, call.arguments),
                     round=state.round,
                     success=report is not None,
                     result_summary=(
@@ -398,8 +431,14 @@ def _build_graph(runtime: _AgentRuntime):
             event_type="tool_execution",
             node="execute_tools",
             round=state.round,
-            accepted_tools=state.selected_tools,
+            accepted_tools=[call.tool_name for call in state.selected_tool_calls],
+            accepted_tool_calls=state.selected_tool_calls,
             executed_tools=[report.module_id for report in reports],
+            executed_tool_calls=[
+                call
+                for call in state.selected_tool_calls
+                if call.tool_name in report_by_name
+            ],
             tool_errors=execution_errors,
             budget_remaining_ms=runtime.run_budget.remaining_ms(),
         )
@@ -407,6 +446,7 @@ def _build_graph(runtime: _AgentRuntime):
             "executed_tools": records,
             "report_modules": [*state.report_modules, *reports],
             "current_round_modules": reports,
+            "current_round_tool_calls": successful_calls,
             "errors": errors,
             "node_trace": _node_path(state, "execute_tools"),
             "trace_events": events,
@@ -416,8 +456,16 @@ def _build_graph(runtime: _AgentRuntime):
         evidence_before = list(state.evidence)
         evidence = list(evidence_before)
         existing_ids = {item.evidence_id for item in evidence}
-        for module in state.current_round_modules:
-            item = _module_evidence(module, round_number=state.round)
+        for module, call in zip(
+            state.current_round_modules, state.current_round_tool_calls, strict=True
+        ):
+            item = _module_evidence(
+                module,
+                round_number=state.round,
+                call_signature=normalized_call_signature(
+                    call.tool_name, call.arguments
+                ),
+            )
             if item is not None and item.evidence_id not in existing_ids:
                 evidence.append(item)
         facts_before = evidence_fact_set(evidence_before)
@@ -443,6 +491,7 @@ def _build_graph(runtime: _AgentRuntime):
                 state.consecutive_no_progress_rounds + 1 if no_progress else 0
             ),
             "current_round_modules": [],
+            "current_round_tool_calls": [],
             "node_trace": _node_path(state, "build_evidence"),
             "trace_events": events,
         }
@@ -506,7 +555,7 @@ def _build_graph(runtime: _AgentRuntime):
         assert decision is not None
         if decision.status == "enough":
             next_decision = "enough"
-            termination_reason = "evidence_sufficient"
+            termination_reason = None
         elif state.round >= state.max_rounds:
             next_decision = "finalize"
             termination_reason = "max_rounds"
@@ -534,6 +583,70 @@ def _build_graph(runtime: _AgentRuntime):
             "missing_questions": decision.missing_questions if next_decision != "enough" else [],
             "suggested_tools": decision.next_tools if next_decision != "enough" else [],
             "node_trace": _node_path(state, "inspect"),
+            "trace_events": events,
+        }
+
+    def sufficiency_guard_node(state: SalesAnalysisAgentState) -> dict[str, object]:
+        result = evaluate_sufficiency(state, available_fields=available_fields)
+        if result.passed:
+            action = "finalize"
+            decision = "enough"
+            termination_reason = "evidence_sufficient"
+            fallback_reason = state.fallback_reason
+        elif not any(
+            item.success for item in state.executed_tools
+        ) or not evidence_fact_set(state.evidence):
+            action = "fallback"
+            decision = "fallback"
+            termination_reason = state.termination_reason
+            fallback_reason = "sufficiency_guard_no_evidence_fallback"
+        elif result.unavailable_capabilities:
+            action = "limited_finalize"
+            decision = "finalize"
+            termination_reason = "capability_unavailable"
+            fallback_reason = state.fallback_reason
+        elif (
+            result.missing_capabilities
+            and result.suggested_tool_calls
+            and state.round < state.max_rounds
+        ):
+            action = "replan"
+            decision = "need_more"
+            termination_reason = None
+            fallback_reason = state.fallback_reason
+        else:
+            action = "limited_finalize"
+            decision = "finalize"
+            termination_reason = "sufficiency_guard_unresolved"
+            fallback_reason = state.fallback_reason
+        events = append_trace_event(
+            state.trace_events,
+            event_type="sufficiency_guard",
+            node="sufficiency_guard",
+            round=state.round,
+            inspector_decision="enough",
+            guard_passed=result.passed,
+            recognized_goal_capabilities=result.recognized_goal_capabilities,
+            satisfied_capabilities=result.satisfied_capabilities,
+            missing_capabilities=result.missing_capabilities,
+            unavailable_capabilities=result.unavailable_capabilities,
+            suggested_tools=[call.tool_name for call in result.suggested_tool_calls],
+            requested_tool_calls=result.suggested_tool_calls,
+            action=action,
+            decision=decision,
+            decision_reason=result.reason,
+            termination_reason=termination_reason,
+            budget_remaining_ms=runtime.run_budget.remaining_ms(),
+        )
+        return {
+            "decision": decision,
+            "decision_reason": result.reason,
+            "termination_reason": termination_reason,
+            "fallback_reason": fallback_reason,
+            "missing_questions": result.missing_capabilities,
+            "suggested_tools": [call.tool_name for call in result.suggested_tool_calls],
+            "suggested_tool_calls": result.suggested_tool_calls,
+            "node_trace": _node_path(state, "sufficiency_guard"),
             "trace_events": events,
         }
 
@@ -574,7 +687,7 @@ def _build_graph(runtime: _AgentRuntime):
             "decision": "fallback",
             "decision_reason": "Deterministic analysis plan executed after Agent failure.",
             "termination_reason": reason,
-            "selected_tools": [],
+            "selected_tool_calls": [],
             "executed_tools": records,
             "evidence": evidence,
             "evidence_fingerprint": evidence_fact_fingerprint(evidence_fact_set(evidence)),
@@ -613,6 +726,15 @@ def _build_graph(runtime: _AgentRuntime):
             return "fallback"
         if state.decision == "need_more":
             return "replan"
+        if state.decision == "enough":
+            return "sufficiency_guard"
+        return "finalize"
+
+    def route_after_sufficiency_guard(state: SalesAnalysisAgentState) -> str:
+        if state.fallback_reason:
+            return "fallback"
+        if state.decision == "need_more":
+            return "replan"
         return "finalize"
 
     graph = StateGraph(SalesAnalysisAgentState)
@@ -622,6 +744,7 @@ def _build_graph(runtime: _AgentRuntime):
     graph.add_node("execute_tools", execute_tools_node)
     graph.add_node("build_evidence", build_evidence_node)
     graph.add_node("inspect", inspect_node)
+    graph.add_node("sufficiency_guard", sufficiency_guard_node)
     graph.add_node("replan", replan_node)
     graph.add_node("fallback", fallback_node)
     graph.add_node("finalize", finalize_node)
@@ -652,6 +775,16 @@ def _build_graph(runtime: _AgentRuntime):
     graph.add_conditional_edges(
         "inspect",
         route_after_inspect,
+        {
+            "replan": "replan",
+            "fallback": "fallback",
+            "sufficiency_guard": "sufficiency_guard",
+            "finalize": "finalize",
+        },
+    )
+    graph.add_conditional_edges(
+        "sufficiency_guard",
+        route_after_sufficiency_guard,
         {"replan": "replan", "fallback": "fallback", "finalize": "finalize"},
     )
     graph.add_edge("fallback", "finalize")

@@ -86,11 +86,21 @@ def _weak_profit_cuts(
     ).head(10)
 
 
-def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
+def run(
+    frame: pd.DataFrame,
+    canonical_columns: dict[str, str],
+    *,
+    dimension: str | None = None,
+    metric: str = "sales_amount",
+    top_n: int = 10,
+) -> ModuleResult:
     sales_col = canonical_columns["sales_amount"]
     profit_col = canonical_columns.get("profit")
     quantity_col = canonical_columns.get("quantity")
     primary_dimension, secondary_dimension = _pick_dimensions(canonical_columns)
+    if dimension is not None:
+        primary_dimension = dimension
+        secondary_dimension = None
 
     if primary_dimension is None:
         return ModuleResult(
@@ -122,6 +132,8 @@ def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
         "primary_dimension": primary_dimension,
         "secondary_dimension": secondary_dimension,
         "group_count": len(primary_rows),
+        "metric": metric,
+        "requested_top_n": top_n,
     }
     findings: list[str] = []
     chart_type = "bar"
@@ -156,7 +168,8 @@ def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
     else:
         findings.append(f"已按 {primary_dimension} 完成单维拆解。")
 
-    top_scope = analysis_scope.sort_values(sales_col, ascending=False).head(10)
+    metric_col = profit_col if metric == "profit" and profit_col else sales_col
+    top_scope = analysis_scope.sort_values(metric_col, ascending=False).head(top_n)
     tables["top_performance_cuts"] = top_scope.to_dict(orient="records")
     if not top_scope.empty:
         top_row = top_scope.iloc[0]

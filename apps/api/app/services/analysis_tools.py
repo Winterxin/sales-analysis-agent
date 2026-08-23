@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+import inspect
+from typing import Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,7 +11,31 @@ from app.analysis.contracts import ModuleResult
 from app.analysis.runner import MODULE_RUNNERS
 
 
-ToolExecutor = Callable[[pd.DataFrame, dict[str, str]], ModuleResult]
+class EmptyArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class TrendArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    granularity: Literal["day", "month"] = "month"
+
+
+class ProductContributionArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    top_n: int = Field(default=10, ge=5, le=20)
+
+
+class DimensionBreakdownArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: Literal["segment", "region", "state", "city", "country", "category"]
+    metric: Literal["sales_amount", "profit"] = "sales_amount"
+    top_n: int = Field(default=10, ge=5, le=20)
+
+
+ToolExecutor = Callable[[pd.DataFrame, dict[str, str], dict[str, object]], ModuleResult]
 
 
 class AnalysisToolSpec(BaseModel):
@@ -21,6 +47,10 @@ class AnalysisToolSpec(BaseModel):
     optional_fields: frozenset[str] = Field(default_factory=frozenset)
     required_any_of: tuple[frozenset[str], ...] = ()
     minimum_rows: int | None = None
+    argument_model: type[BaseModel] = Field(
+        default=EmptyArguments, exclude=True, repr=False
+    )
+    allow_distinct_argument_calls: bool = False
     executor: ToolExecutor = Field(exclude=True, repr=False)
 
     def missing_fields(
@@ -53,7 +83,11 @@ class AnalysisToolRegistry:
         spec = self.get(name)
         if spec is None:
             return None
-        return spec.model_dump(exclude={"executor"})
+        description = spec.model_dump(
+            mode="json", exclude={"executor", "argument_model"}
+        )
+        description["argument_schema"] = spec.argument_model.model_json_schema()
+        return description
 
     def is_available(
         self,
@@ -83,11 +117,25 @@ class AnalysisToolRegistry:
         name: str,
         frame: pd.DataFrame,
         canonical_columns: dict[str, str],
+        arguments: dict[str, object] | None = None,
     ) -> ModuleResult:
         spec = self.get(name)
         if spec is None:
             raise KeyError(f"Unknown analysis tool: {name}")
-        return spec.executor(frame, canonical_columns)
+        if len(inspect.signature(spec.executor).parameters) == 2:
+            return spec.executor(frame, canonical_columns)  # type: ignore[call-arg]
+        return spec.executor(frame, canonical_columns, arguments or {})
+
+
+def _adapt_executor(executor: Callable[..., ModuleResult]) -> ToolExecutor:
+    def adapted(
+        frame: pd.DataFrame,
+        canonical_columns: dict[str, str],
+        arguments: dict[str, object],
+    ) -> ModuleResult:
+        return executor(frame, canonical_columns, **arguments)
+
+    return adapted
 
 
 def _spec(
@@ -98,6 +146,8 @@ def _spec(
     optional: Iterable[str] = (),
     required_any_of: tuple[Iterable[str], ...] = (),
     minimum_rows: int | None = None,
+    argument_model: type[BaseModel] = EmptyArguments,
+    allow_distinct_argument_calls: bool = False,
 ) -> AnalysisToolSpec:
     return AnalysisToolSpec(
         name=name,
@@ -106,7 +156,9 @@ def _spec(
         optional_fields=frozenset(optional),
         required_any_of=tuple(frozenset(group) for group in required_any_of),
         minimum_rows=minimum_rows,
-        executor=MODULE_RUNNERS[name],
+        argument_model=argument_model,
+        allow_distinct_argument_calls=allow_distinct_argument_calls,
+        executor=_adapt_executor(MODULE_RUNNERS[name]),
     )
 
 
@@ -126,6 +178,8 @@ _REGISTRY = AnalysisToolRegistry(
             "Analyze sales movement and time-period changes.",
             required=("order_datetime", "sales_amount"),
             optional=("profit",),
+            argument_model=TrendArguments,
+            allow_distinct_argument_calls=True,
         ),
         _spec(
             "product_contribution_analysis",
@@ -133,6 +187,8 @@ _REGISTRY = AnalysisToolRegistry(
             required=("sales_amount",),
             required_any_of=(("product_name", "sku", "category", "productline"),),
             optional=("profit",),
+            argument_model=ProductContributionArguments,
+            allow_distinct_argument_calls=True,
         ),
         _spec(
             "dimension_breakdown_analysis",
@@ -140,6 +196,8 @@ _REGISTRY = AnalysisToolRegistry(
             required=("sales_amount",),
             required_any_of=(("segment", "region", "state", "city", "country", "category"),),
             optional=("profit",),
+            argument_model=DimensionBreakdownArguments,
+            allow_distinct_argument_calls=True,
         ),
         _spec(
             "country_market_analysis",

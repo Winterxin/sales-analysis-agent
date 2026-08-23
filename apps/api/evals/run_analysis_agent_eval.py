@@ -182,6 +182,10 @@ def _run_case(case: dict[str, Any], csv_path: Path) -> dict[str, object]:
         == expected["expected_termination_reason"],
         "tool_call_limit": tool_calls <= int(expected["max_tool_calls"]),
     }
+    if "expected_evidence_count" in expected:
+        checks["evidence_count"] = len(result.state.evidence) == int(
+            expected["expected_evidence_count"]
+        )
     return {
         "case_id": case["case_id"],
         "passed": all(checks.values()),
@@ -209,6 +213,20 @@ def run_golden_eval(cases_path: Path = DEFAULT_CASES_PATH) -> dict[str, object]:
             _synthetic_frame(list(case["schema_fields"])).to_csv(csv_path, index=False)
             results.append(_run_case(case, csv_path))
     count = len(results)
+    argument_results = [item for item in results if str(item["case_id"]).startswith("args_")]
+    signature_results = [
+        item
+        for item in results
+        if item["case_id"]
+        in {
+            "args_duplicate_same_signature",
+            "args_distinct_signatures_allowed",
+            "args_signature_key_order",
+        }
+    ]
+    sufficiency_results = [
+        item for item in results if str(item["case_id"]).startswith("suff_")
+    ]
     return {
         "case_count": count,
         "case_pass_rate": round(
@@ -231,6 +249,22 @@ def run_golden_eval(cases_path: Path = DEFAULT_CASES_PATH) -> dict[str, object]:
             bool(item["checks"]["replan"]) for item in results
         ),
         "guard_violation_count": sum(int(item["guard_errors"]) for item in results),
+        "argument_validation_correctness": sum(
+            bool(item["passed"]) for item in argument_results
+        ),
+        "duplicate_signature_correctness": sum(
+            bool(item["passed"]) for item in signature_results
+        ),
+        "sufficiency_guard_correctness": sum(
+            bool(item["passed"]) for item in sufficiency_results
+        ),
+        "capability_unavailable_correctness": int(
+            next(
+                item["passed"]
+                for item in results
+                if item["case_id"] == "suff_profit_unavailable"
+            )
+        ),
         "average_tool_calls": round(
             sum(int(item["tool_calls"]) for item in results) / count if count else 0.0,
             3,
