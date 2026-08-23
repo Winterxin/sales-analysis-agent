@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.analysis_agent.state import SalesAnalysisAgentState
 
 
 class PlannerDecision(BaseModel):
-    selected_tools: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    selected_tools: list[str]
     reasoning_summary: str = ""
 
 
 class InspectionDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: str
     reason: str = ""
     missing_questions: list[str] = Field(default_factory=list)
@@ -28,7 +32,13 @@ def plan_with_llm(
     llm_client: Any,
     *,
     replan: bool,
+    correction_errors: list[str] | None = None,
 ) -> PlannerDecision:
+    mode = (
+        "plan_correction"
+        if correction_errors
+        else "replan" if replan else "initial_plan"
+    )
     payload = {
         "task": "Select deterministic analysis tools for the user goal.",
         "user_goal": state.user_goal,
@@ -40,11 +50,13 @@ def plan_with_llm(
         "inspect_suggested_tools": state.suggested_tools,
         "round": state.round + 1,
         "max_tools_per_round": state.max_tools_per_round,
-        "mode": "replan" if replan else "initial_plan",
+        "mode": mode,
+        "harness_rejection_reasons": correction_errors or [],
         "constraints": [
             "Choose only names from available_tools.",
             "Choose 2-4 tools when useful and never return Python code.",
             "On replan, choose only tools that can add evidence not already collected.",
+            "On plan correction, fix every harness rejection and choose only available tools.",
             "Return JSON with selected_tools and reasoning_summary.",
         ],
     }

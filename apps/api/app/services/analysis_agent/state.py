@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.report import ModuleReport
+from app.services.analysis_agent.trace import AgentTraceEvent
 
 
 DEFAULT_USER_GOAL = (
@@ -34,6 +35,7 @@ class AgentEvidence(BaseModel):
     summary_metrics: dict[str, object] = Field(default_factory=dict)
     findings: list[str] = Field(default_factory=list)
     warning_count: int = 0
+    result_signals: list[str] = Field(default_factory=list)
 
 
 class SalesAnalysisAgentState(BaseModel):
@@ -42,6 +44,7 @@ class SalesAnalysisAgentState(BaseModel):
     dataset_profile: dict[str, object] = Field(default_factory=dict)
     available_tools: list[AvailableAnalysisTool] = Field(default_factory=list)
     selected_tools: list[str] = Field(default_factory=list)
+    requested_tools: list[str] = Field(default_factory=list)
     executed_tools: list[ToolExecutionRecord] = Field(default_factory=list)
     evidence: list[AgentEvidence] = Field(default_factory=list)
     round: int = 0
@@ -55,10 +58,17 @@ class SalesAnalysisAgentState(BaseModel):
     evidence_fingerprint: str = ""
     max_rounds: int = 2
     max_tools_per_round: int = 4
+    max_plan_corrections: int = 1
+    plan_corrections: int = 0
+    validation_action: str = "execute"
+    last_guard_errors: list[str] = Field(default_factory=list)
     node_trace: list[str] = Field(default_factory=list)
     fallback_reason: str | None = None
     report_modules: list[ModuleReport] = Field(default_factory=list, exclude=True)
     current_round_modules: list[ModuleReport] = Field(default_factory=list, exclude=True)
+    trace_events: list[AgentTraceEvent] = Field(default_factory=list, exclude=True)
 
     def public_payload(self) -> dict[str, object]:
-        return self.model_dump(exclude={"report_modules", "current_round_modules"})
+        return self.model_dump(
+            exclude={"report_modules", "current_round_modules", "trace_events"}
+        )

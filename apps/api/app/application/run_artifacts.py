@@ -82,6 +82,12 @@ class RunArtifacts:
                             "analysis_agent_state_path",
                         )
                     ),
+                    "analysis_agent_trace_json": str(
+                        _required_path(
+                            ctx.analysis_agent_trace_path,
+                            "analysis_agent_trace_path",
+                        )
+                    ),
                 },
             }
         )
@@ -181,6 +187,12 @@ class RunArtifacts:
                         _required_path(
                             ctx.analysis_agent_state_path,
                             "analysis_agent_state_path",
+                        )
+                    ),
+                    "analysis_agent_trace_json": str(
+                        _required_path(
+                            ctx.analysis_agent_trace_path,
+                            "analysis_agent_trace_path",
                         )
                     ),
                     "notebook_outline_json": str(

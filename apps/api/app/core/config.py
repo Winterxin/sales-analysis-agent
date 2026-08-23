@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     max_postrun_reflections: int = Field(default=6)
     analysis_agent_max_rounds: int = Field(default=2)
     analysis_agent_max_tools_per_round: int = Field(default=4)
+    analysis_agent_max_plan_corrections: int = Field(default=1)
     notebook_output_mode: str = Field(default="compact")
     demo_safe: bool = Field(default=False)
     demo_safe_run_budget_seconds: float = Field(default=85.0)

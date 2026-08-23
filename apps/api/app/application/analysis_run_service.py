@@ -394,14 +394,21 @@ class AnalysisRunService:
             run_budget=ctx.run_budget,
             max_rounds=ctx.settings.analysis_agent_max_rounds,
             max_tools_per_round=ctx.settings.analysis_agent_max_tools_per_round,
+            max_plan_corrections=ctx.settings.analysis_agent_max_plan_corrections,
         )
         ctx.report = result.report
         ctx.analysis_plan = result.analysis_plan
         ctx.analysis_agent_state = result.state
+        ctx.analysis_agent_trace = result.trace
         ctx.analysis_agent_state_path = ctx.store.save_json(
             ctx.task_id,
             "analysis_agent_state.json",
             result.state.public_payload(),
+        )
+        ctx.analysis_agent_trace_path = ctx.store.save_json(
+            ctx.task_id,
+            "analysis_agent_trace.json",
+            result.trace.model_dump(mode="json"),
         )
         self.artifacts.record_analysis_agent(ctx)
         ctx.llm_trace = _llm_stage_trace_payload(dict(ctx.manifest.get("llm_trace", {})))

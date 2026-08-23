@@ -12,9 +12,10 @@ from app.schemas.notebook_outline import NotebookOutline
 from app.schemas.notebook_revision import NotebookRevisionPlan
 from app.schemas.report import AnalysisReport
 from app.schemas.schema_mapping import SchemaMapping
+from app.services.analysis_agent.state import SalesAnalysisAgentState
+from app.services.analysis_agent.trace import AnalysisAgentTrace
 from app.services.artifact_store import ArtifactStore
 from app.services.run_budget import RunBudget
-from app.services.analysis_agent.state import SalesAnalysisAgentState
 
 
 @dataclass
@@ -38,6 +39,8 @@ class AnalysisRunContext:
     report: AnalysisReport | None = None
     analysis_agent_state: SalesAnalysisAgentState | None = None
     analysis_agent_state_path: Path | None = None
+    analysis_agent_trace: AnalysisAgentTrace | None = None
+    analysis_agent_trace_path: Path | None = None
     section_priority: dict[str, object] | None = None
     evidence_pack: dict[str, object] | None = None
     llm_evidence_pack: dict[str, object] | None = None

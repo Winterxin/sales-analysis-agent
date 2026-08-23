@@ -51,3 +51,16 @@ def test_artifact_download_endpoint_serves_agent_loop_state(
     assert analysis_payload["user_goal"] == user_goal
     assert analysis_payload["termination_reason"] == "llm_unavailable_fallback"
     assert "report_modules" not in analysis_payload
+
+    trace_response = client.get(
+        f"/api/v1/analysis/tasks/{task_id}/artifacts/analysis-agent-trace"
+    )
+    assert trace_response.status_code == 200
+    trace_payload = trace_response.json()
+    assert trace_payload["task_id"] == task_id
+    assert trace_payload["summary"]["fallback_used"] is True
+    assert trace_payload["summary"]["termination_reason"] == "llm_unavailable_fallback"
+    assert [event["node"] for event in trace_payload["events"]] == [
+        "fallback",
+        "finalize",
+    ]

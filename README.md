@@ -32,6 +32,7 @@ A completed run can produce:
 - `artifact_manifest.json`
 - `llm_trace.json`
 - `analysis_agent_state.json`
+- `analysis_agent_trace.json`
 
 ## Key Features
 
@@ -44,6 +45,7 @@ A completed run can produce:
 - Runtime task status with progress heartbeat, refresh recovery, LLM call state, and cooperative cancellation
 - Optional LLM enrichment through an OpenAI-compatible Chat Completions endpoint
 - Bounded analysis Agent loop with a deterministic tool whitelist and fallback
+- Structured per-node Agent trace and reproducible scripted Golden Eval
 
 ## Supported Data Shape
 
@@ -174,6 +176,30 @@ and does not represent production data.
 
 See [docs/analysis-agent-architecture.md](docs/analysis-agent-architecture.md)
 for the analysis subgraph boundary and state contract.
+
+This is a bounded, constrained agentic workflow, not a fully autonomous Agent.
+The model proposes registered tools; the Harness owns validation and termination,
+and deterministic modules own every numeric result.
+
+## Failure Behavior
+
+| Failure | Behavior |
+|---|---|
+| LLM disabled or budget exhausted | Run the deterministic fallback plan |
+| Planner exception or invalid payload | Run the deterministic fallback plan |
+| Unknown tool or missing required fields | Harness rejects the selection |
+| Initial plan has no valid tool | One bounded correction, then fallback |
+| Replan has no valid new tool | Finalize the evidence already collected |
+| No new content-based evidence facts | Terminate with `no_progress` |
+| Maximum rounds reached | Finalize at the configured bound |
+| Tool execution failure | Trace the error and keep any valid sibling evidence |
+
+Run the offline scripted Agent evaluation without an external LLM:
+
+```bash
+cd apps/api
+python evals/run_analysis_agent_eval.py
+```
 
 ## Limitations
 
