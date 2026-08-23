@@ -1125,6 +1125,32 @@ class LLMClient:
         summary = result.get("summary", [])
         return [str(item) for item in summary if str(item).strip()]
 
+    def plan_analysis_tools(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return complete_json_for_stage(
+            self,
+            system_prompt=(
+                "You are a bounded sales-analysis planner. Select only registered "
+                "deterministic tools included in the payload. Return JSON with "
+                "selected_tools and reasoning_summary. Never return code."
+            ),
+            user_payload=payload,
+            preferred_models=NOTEBOOK_PREFERRED_MODELS,
+            cache_stage="analysis_agent_plan",
+        )
+
+    def inspect_analysis_evidence(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return complete_json_for_stage(
+            self,
+            system_prompt=(
+                "You inspect grounded outputs from deterministic analysis tools. "
+                "Return JSON with status (enough or need_more), reason, "
+                "missing_questions, and next_tools. Do not invent facts or tools."
+            ),
+            user_payload=payload,
+            preferred_models=NOTEBOOK_PREFERRED_MODELS,
+            cache_stage="analysis_agent_inspect",
+        )
+
     def suggest_notebook_outline(
         self,
         schema_mapping: SchemaMapping,

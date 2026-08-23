@@ -6,7 +6,7 @@ from pathlib import Path
 
 EXPECTED_STAGE_IDS = [
     "load_uploaded_inputs",
-    "deterministic_analysis",
+    "analysis_agent",
     "evidence_and_chart_planning",
     "modeling_opportunity_planning",
     "notebook_planning",

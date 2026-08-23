@@ -31,6 +31,7 @@ A completed run can produce:
 - `client_report.json`
 - `artifact_manifest.json`
 - `llm_trace.json`
+- `analysis_agent_state.json`
 
 ## Key Features
 
@@ -42,6 +43,7 @@ A completed run can produce:
 - Business review and client report artifacts
 - Runtime task status with progress heartbeat, refresh recovery, LLM call state, and cooperative cancellation
 - Optional LLM enrichment through an OpenAI-compatible Chat Completions endpoint
+- Bounded analysis Agent loop with a deterministic tool whitelist and fallback
 
 ## Supported Data Shape
 
@@ -126,6 +128,9 @@ The LLM enriches planning and narrative generation. It is optional: incomplete
 configuration falls back safely, and the deterministic analysis pipeline remains
 runnable when LLM enrichment is disabled.
 
+The run endpoint accepts an optional `user_goal` query parameter. When omitted,
+the Agent uses a general business-analysis goal.
+
 See [docs/llm-configuration.md](docs/llm-configuration.md) for details.
 
 ## Output Artifacts
@@ -156,10 +161,19 @@ and does not represent production data.
 - FastAPI serves the upload, task, artifact, and static UI routes.
 - The ingestion layer validates CSV files and builds a dataset profile.
 - Schema mapping converts flexible column names into canonical sales fields.
-- Deterministic analysis modules compute tables, metrics, and chart-ready data.
-- Optional LLM stages enrich analysis planning and narrative text.
+- A LangGraph subgraph plans, validates, executes, inspects, and can replan only
+  the analysis-module selection stage.
+- The LLM selects registered tools; deterministic pandas modules remain the only
+  component that computes tables, metrics, and chart-ready data.
+- Harness guards enforce field capabilities, tool limits, round limits,
+  duplicate prevention, no-progress termination, and run budget checks.
+- Disabled, failed, invalid, or budget-blocked Agent decisions fall back to the
+  existing deterministic analysis plan.
 - Notebook assembly produces executable and executed notebook artifacts.
 - Report builders produce business and client-facing output files.
+
+See [docs/analysis-agent-architecture.md](docs/analysis-agent-architecture.md)
+for the analysis subgraph boundary and state contract.
 
 ## Limitations
 

@@ -113,6 +113,7 @@ def run_task(
     task_id: str,
     llm_profile: str | None = Query(default=None),
     output_language: str | None = Query(default=None),
+    user_goal: str | None = Query(default=None, max_length=1000),
     session: Session = Depends(get_session),
 ) -> RunResponse:
     try:
@@ -135,6 +136,7 @@ def run_task(
         task_id,
         llm_profile=llm_profile,
         output_language=output_language,
+        user_goal=user_goal,
     )
     return runtime_response_from_task(
         queued_task,

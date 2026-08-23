@@ -14,6 +14,7 @@ from app.schemas.report import AnalysisReport
 from app.schemas.schema_mapping import SchemaMapping
 from app.services.artifact_store import ArtifactStore
 from app.services.run_budget import RunBudget
+from app.services.analysis_agent.state import SalesAnalysisAgentState
 
 
 @dataclass
@@ -28,12 +29,15 @@ class AnalysisRunContext:
     llm_profile_policy: dict[str, object]
     run_budget: RunBudget
     manifest: dict[str, object]
+    user_goal: str
     llm_trace: dict[str, object] = field(default_factory=dict)
     schema_mapping: SchemaMapping | None = None
     analysis_plan: AnalysisPlan | None = None
     dataset_profile: dict[str, object] = field(default_factory=dict)
     analysis_focus: dict[str, object] = field(default_factory=dict)
     report: AnalysisReport | None = None
+    analysis_agent_state: SalesAnalysisAgentState | None = None
+    analysis_agent_state_path: Path | None = None
     section_priority: dict[str, object] | None = None
     evidence_pack: dict[str, object] | None = None
     llm_evidence_pack: dict[str, object] | None = None
