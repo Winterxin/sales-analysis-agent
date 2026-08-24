@@ -27,7 +27,11 @@ def test_artifact_download_endpoint_serves_agent_loop_state(
             files={"file": ("sales_orders.csv", csv_file, "text/csv")},
         )
 
-    client.post(f"/api/v1/analysis/tasks/{task_id}/run")
+    user_goal = "Focus on profit and discount risk"
+    client.post(
+        f"/api/v1/analysis/tasks/{task_id}/run",
+        params={"user_goal": user_goal},
+    )
     _wait_for_completed(client, task_id)
 
     response = client.get(
@@ -38,3 +42,25 @@ def test_artifact_download_endpoint_serves_agent_loop_state(
     payload = response.json()
     assert payload["task_id"] == task_id
     assert payload["stages"][-1]["stage"] == "finalize"
+
+    analysis_response = client.get(
+        f"/api/v1/analysis/tasks/{task_id}/artifacts/analysis-agent-state"
+    )
+    assert analysis_response.status_code == 200
+    analysis_payload = analysis_response.json()
+    assert analysis_payload["user_goal"] == user_goal
+    assert analysis_payload["termination_reason"] == "llm_unavailable_fallback"
+    assert "report_modules" not in analysis_payload
+
+    trace_response = client.get(
+        f"/api/v1/analysis/tasks/{task_id}/artifacts/analysis-agent-trace"
+    )
+    assert trace_response.status_code == 200
+    trace_payload = trace_response.json()
+    assert trace_payload["task_id"] == task_id
+    assert trace_payload["summary"]["fallback_used"] is True
+    assert trace_payload["summary"]["termination_reason"] == "llm_unavailable_fallback"
+    assert [event["node"] for event in trace_payload["events"]] == [
+        "fallback",
+        "finalize",
+    ]

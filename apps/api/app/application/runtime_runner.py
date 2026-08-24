@@ -42,6 +42,7 @@ class RuntimeRunner:
         *,
         llm_profile: str | None = None,
         output_language: str | None = None,
+        user_goal: str | None = None,
     ) -> bool:
         with self._lock:
             if task_id in self._active_task_ids:
@@ -52,6 +53,7 @@ class RuntimeRunner:
             task_id,
             llm_profile=llm_profile,
             output_language=output_language,
+            user_goal=user_goal,
         )
         return True
 
@@ -61,6 +63,7 @@ class RuntimeRunner:
         *,
         llm_profile: str | None,
         output_language: str | None,
+        user_goal: str | None = None,
     ) -> None:
         stop_heartbeat = threading.Event()
         heartbeat_thread = threading.Thread(
@@ -77,6 +80,7 @@ class RuntimeRunner:
                 task_id,
                 llm_profile=llm_profile,
                 output_language=output_language,
+                user_goal=user_goal,
             )
             self._state.mark_completed(task_id)
         except AnalysisRunCancelled:

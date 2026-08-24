@@ -90,12 +90,20 @@ def _load_frame(csv_path: Path, schema_mapping: SchemaMapping) -> pd.DataFrame:
     return _clean_numeric_fields(_load_raw_frame(csv_path, schema_mapping), schema_mapping)
 
 
+def load_analysis_frames(
+    csv_path: Path, schema_mapping: SchemaMapping
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str]]:
+    """Load the shared raw/clean frames used by deterministic analysis tools."""
+    raw_frame = _load_raw_frame(csv_path, schema_mapping)
+    clean_frame = _clean_numeric_fields(raw_frame.copy(), schema_mapping)
+    canonical_columns = canonical_columns_for_frame(clean_frame, schema_mapping)
+    return raw_frame, clean_frame, canonical_columns
+
+
 def run_analysis(
     task_id: str, csv_path: Path, schema_mapping: SchemaMapping, plan: AnalysisPlan
 ) -> AnalysisReport:
-    raw_frame = _load_raw_frame(csv_path, schema_mapping)
-    frame = _clean_numeric_fields(raw_frame.copy(), schema_mapping)
-    canonical_columns = canonical_columns_for_frame(frame, schema_mapping)
+    raw_frame, frame, canonical_columns = load_analysis_frames(csv_path, schema_mapping)
     module_results: list[ModuleResult] = []
 
     for module_id in plan.analysis_plan:

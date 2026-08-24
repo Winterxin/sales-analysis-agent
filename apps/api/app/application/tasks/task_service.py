@@ -59,6 +59,8 @@ ARTIFACT_ROUTE_MAP = {
     "source-notebook": ("analysis_source_notebook", "application/x-ipynb+json"),
     "llm-trace": ("llm_trace_json", "application/json"),
     "agent-loop-state": ("notebook_agent_state_json", "application/json"),
+    "analysis-agent-state": ("analysis_agent_state_json", "application/json"),
+    "analysis-agent-trace": ("analysis_agent_trace_json", "application/json"),
     "revision-decisions": ("revision_decisions_json", "application/json"),
     "client-report-html": ("client_report_html", "text/html; charset=utf-8"),
     "client-report-json": ("client_report_json", "application/json"),

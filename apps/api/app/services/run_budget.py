@@ -6,6 +6,8 @@ from app.schemas.llm_trace import LLMStageTrace
 from app.services.llm_trace_utils import build_llm_stage_trace
 
 DEMO_SAFE_LLM_STAGE_ALLOWLIST = {
+    "analysis_agent_plan",
+    "analysis_agent_inspect",
     "notebook_outline",
     "notebook_content",
     "client_report",

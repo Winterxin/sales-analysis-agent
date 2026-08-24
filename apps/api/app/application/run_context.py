@@ -12,6 +12,8 @@ from app.schemas.notebook_outline import NotebookOutline
 from app.schemas.notebook_revision import NotebookRevisionPlan
 from app.schemas.report import AnalysisReport
 from app.schemas.schema_mapping import SchemaMapping
+from app.services.analysis_agent.state import SalesAnalysisAgentState
+from app.services.analysis_agent.trace import AnalysisAgentTrace
 from app.services.artifact_store import ArtifactStore
 from app.services.run_budget import RunBudget
 
@@ -28,12 +30,17 @@ class AnalysisRunContext:
     llm_profile_policy: dict[str, object]
     run_budget: RunBudget
     manifest: dict[str, object]
+    user_goal: str
     llm_trace: dict[str, object] = field(default_factory=dict)
     schema_mapping: SchemaMapping | None = None
     analysis_plan: AnalysisPlan | None = None
     dataset_profile: dict[str, object] = field(default_factory=dict)
     analysis_focus: dict[str, object] = field(default_factory=dict)
     report: AnalysisReport | None = None
+    analysis_agent_state: SalesAnalysisAgentState | None = None
+    analysis_agent_state_path: Path | None = None
+    analysis_agent_trace: AnalysisAgentTrace | None = None
+    analysis_agent_trace_path: Path | None = None
     section_priority: dict[str, object] | None = None
     evidence_pack: dict[str, object] | None = None
     llm_evidence_pack: dict[str, object] | None = None

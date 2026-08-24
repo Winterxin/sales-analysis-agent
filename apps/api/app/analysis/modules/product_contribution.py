@@ -43,7 +43,12 @@ def _products_to_share(grouped: pd.DataFrame, share: float) -> int:
     return int(reached.index[0]) + 1
 
 
-def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
+def run(
+    frame: pd.DataFrame,
+    canonical_columns: dict[str, str],
+    *,
+    top_n: int = 15,
+) -> ModuleResult:
     product_col = canonical_columns.get("product_name") or canonical_columns.get("sku")
     sales_col = canonical_columns["sales_amount"]
     quantity_col = canonical_columns.get("quantity")
@@ -89,7 +94,7 @@ def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
             axis=1,
         )
 
-    top_rows = _round_records(grouped.head(15))
+    top_rows = _round_records(grouped.head(top_n))
     tables: dict[str, list[dict[str, object]]] = {"top_products": top_rows}
 
     if category_col:
@@ -154,6 +159,7 @@ def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
 
     summary_metrics: dict[str, object] = {
         "distinct_products": int(grouped[product_col].nunique()) if not grouped.empty else 0,
+        "requested_top_n": top_n,
         "top_product": top_rows[0][product_col] if top_rows else None,
         "top_1_sales_share": _safe_round(grouped["sales_share"].head(1).sum())
         if not grouped.empty

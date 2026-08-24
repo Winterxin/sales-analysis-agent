@@ -16,7 +16,12 @@ WEEKDAY_LABELS = {
 }
 
 
-def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
+def run(
+    frame: pd.DataFrame,
+    canonical_columns: dict[str, str],
+    *,
+    granularity: str = "day",
+) -> ModuleResult:
     date_col = canonical_columns["order_datetime"]
     sales_col = canonical_columns["sales_amount"]
     quantity_col = canonical_columns.get("quantity")
@@ -86,12 +91,15 @@ def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
     row_columns = ["period", sales_col]
     if has_quantity and quantity_col:
         row_columns.append(quantity_col)
-    rows = daily[row_columns].to_dict(orient="records")
+    daily_rows = daily[row_columns].to_dict(orient="records")
+    monthly_rows = monthly.rename(columns={"order_month": "period"}).to_dict(orient="records")
+    rows = daily_rows if granularity == "day" else monthly_rows
     peak_row = max(rows, key=lambda row: float(row[sales_col])) if rows else {}
     trough_row = min(rows, key=lambda row: float(row[sales_col])) if rows else {}
 
     summary_metrics = {
         "total_sales_amount": round(float(daily[sales_col].sum()), 2) if not daily.empty else 0.0,
+        "granularity": granularity,
         "peak_period": peak_row.get("period"),
         "trough_period": trough_row.get("period"),
         "daily_grain_count": int(len(daily)),
@@ -113,8 +121,8 @@ def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
         chart_type="line",
         summary_metrics=summary_metrics,
         tables={
-            "daily_totals": rows,
-            "monthly_totals": monthly.to_dict(orient="records"),
+            "daily_totals": daily_rows,
+            "monthly_totals": monthly_rows,
             "weekday_profile": weekday_profile.to_dict(orient="records"),
             "year_month_totals": year_month_totals.to_dict(orient="records"),
         },
@@ -124,7 +132,7 @@ def run(frame: pd.DataFrame, canonical_columns: dict[str, str]) -> ModuleResult:
             "series_name": "sales_amount",
         },
         findings=[
-            f"共覆盖 {len(rows)} 个日度时间粒度。",
+            f"当前主趋势采用 {granularity} 粒度，共覆盖 {len(rows)} 个时间点。",
             f"月度趋势共覆盖 {len(monthly)} 个时间点。",
             (
                 f"峰值日期为 {peak_row.get('period')}，谷值日期为 {trough_row.get('period')}。"

@@ -16,6 +16,7 @@ TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 LLM_STATUSES = {"unknown", "off", "pending", "called", "failed", "fallback"}
 LLM_STAGES = {
     "schema_mapping",
+    "analysis_agent",
     "evidence_and_chart_planning",
     "notebook_planning",
     "summary_and_modeling_interpretation",

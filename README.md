@@ -31,6 +31,8 @@ A completed run can produce:
 - `client_report.json`
 - `artifact_manifest.json`
 - `llm_trace.json`
+- `analysis_agent_state.json`
+- `analysis_agent_trace.json`
 
 ## Key Features
 
@@ -42,6 +44,9 @@ A completed run can produce:
 - Business review and client report artifacts
 - Runtime task status with progress heartbeat, refresh recovery, LLM call state, and cooperative cancellation
 - Optional LLM enrichment through an OpenAI-compatible Chat Completions endpoint
+- Bounded analysis Agent loop with validated Tool Calls, a deterministic
+  sufficiency guard, tool whitelist, and fallback
+- Structured per-node Agent trace and reproducible scripted Golden Eval
 
 ## Supported Data Shape
 
@@ -126,6 +131,9 @@ The LLM enriches planning and narrative generation. It is optional: incomplete
 configuration falls back safely, and the deterministic analysis pipeline remains
 runnable when LLM enrichment is disabled.
 
+The run endpoint accepts an optional `user_goal` query parameter. When omitted,
+the Agent uses a general business-analysis goal.
+
 See [docs/llm-configuration.md](docs/llm-configuration.md) for details.
 
 ## Output Artifacts
@@ -156,10 +164,47 @@ and does not represent production data.
 - FastAPI serves the upload, task, artifact, and static UI routes.
 - The ingestion layer validates CSV files and builds a dataset profile.
 - Schema mapping converts flexible column names into canonical sales fields.
-- Deterministic analysis modules compute tables, metrics, and chart-ready data.
-- Optional LLM stages enrich analysis planning and narrative text.
+- A LangGraph subgraph plans Tool Calls (`name + arguments`), validates, executes,
+  inspects, applies a deterministic sufficiency floor, and can replan only the
+  analysis-module selection stage.
+- The LLM proposes registered tools and arguments; deterministic pandas modules
+  remain the only component that computes tables, metrics, and chart-ready data.
+- Harness guards enforce argument schemas, dataset capabilities, signature-based
+  duplicate prevention, tool/round limits, no-progress termination, and budget.
+- Disabled, failed, invalid, or budget-blocked Agent decisions fall back to the
+  existing deterministic analysis plan.
 - Notebook assembly produces executable and executed notebook artifacts.
 - Report builders produce business and client-facing output files.
+
+See [docs/analysis-agent-architecture.md](docs/analysis-agent-architecture.md)
+for the analysis subgraph boundary and state contract.
+
+This is a bounded, constrained agentic workflow, not a fully autonomous Agent.
+The model proposes registered Tool Calls; the Harness owns validation and
+termination, and deterministic modules own every numeric result. The model has
+no arbitrary Python or code-execution permission. Identical calls are blocked by
+a stable tool-name-plus-normalized-arguments signature; distinct arguments are
+allowed only where a ToolSpec explicitly permits them.
+
+## Failure Behavior
+
+| Failure | Behavior |
+|---|---|
+| LLM disabled or budget exhausted | Run the deterministic fallback plan |
+| Planner exception or invalid payload | Run the deterministic fallback plan |
+| Unknown tool or missing required fields | Harness rejects the selection |
+| Initial plan has no valid tool | One bounded correction, then fallback |
+| Replan has no valid new tool | Finalize the evidence already collected |
+| No new content-based evidence facts | Terminate with `no_progress` |
+| Maximum rounds reached | Finalize at the configured bound |
+| Tool execution failure | Trace the error and keep any valid sibling evidence |
+
+Run the offline scripted Agent evaluation without an external LLM:
+
+```bash
+cd apps/api
+python evals/run_analysis_agent_eval.py
+```
 
 ## Limitations
 

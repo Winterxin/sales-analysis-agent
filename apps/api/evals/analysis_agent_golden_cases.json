@@ -1,0 +1,307 @@
+[
+  {
+    "case_id": "trend_goal",
+    "description": "Trend goal selects the trend tool.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "分析销售趋势",
+    "plans": [{"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "trend"}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "discount_profit_goal",
+    "description": "Profit and discount enable discount-profit analysis.",
+    "schema_fields": ["sales_amount", "profit", "discount"],
+    "user_goal": "分析折扣是否侵蚀利润",
+    "plans": [{"selected_tools": ["discount_profit_analysis"], "reasoning_summary": "discount"}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["discount_profit_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "discount_without_profit",
+    "description": "Profit-dependent tool is never executed without profit.",
+    "schema_fields": ["sales_amount", "discount"],
+    "user_goal": "分析折扣利润",
+    "plans": [{"selected_tools": ["discount_profit_analysis"], "reasoning_summary": "bad"}, {"selected_tools": ["discount_profit_analysis"], "reasoning_summary": "still bad"}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": ["discount_profit_analysis"], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_plan_invalid_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "unknown_tool_corrected",
+    "description": "Unknown tool is rejected and corrected once.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "分析趋势",
+    "plans": [{"selected_tools": ["invented_tool"], "reasoning_summary": "bad"}, {"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "fixed"}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": ["invented_tool"], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "duplicate_in_plan",
+    "description": "Duplicate tool is rejected while the valid occurrence runs.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"selected_tools": ["sales_trend_analysis", "sales_trend_analysis"], "reasoning_summary": "trend"}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "initial_invalid_twice",
+    "description": "Two invalid initial plans use deterministic fallback.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"selected_tools": ["bad_one"], "reasoning_summary": "bad"}, {"selected_tools": ["bad_two"], "reasoning_summary": "bad"}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": ["bad_one", "bad_two"], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_plan_invalid_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "one_round_enough",
+    "description": "One valid round finalizes when evidence is enough.",
+    "schema_fields": ["sales_amount"],
+    "user_goal": "数据质量",
+    "plans": [{"selected_tools": ["data_quality_check"], "reasoning_summary": "quality"}],
+    "inspections": [{"status": "enough", "reason": "enough"}],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "incremental_replan",
+    "description": "Inspector requests a second tool and gains evidence.",
+    "schema_fields": ["order_datetime", "sales_amount", "product_name"],
+    "user_goal": "趋势与商品贡献",
+    "plans": [{"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "trend"}, {"selected_tools": ["product_contribution_analysis"], "reasoning_summary": "product"}],
+    "inspections": [{"status": "need_more", "reason": "need product", "next_tools": ["product_contribution_analysis"]}, {"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis", "product_contribution_analysis"], "forbidden_tools": [], "expected_rounds": 2, "expected_replan": true, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "replan_duplicate",
+    "description": "Duplicate replan finalizes existing evidence.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "trend"}, {"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "repeat"}],
+    "inspections": [{"status": "need_more", "reason": "again", "next_tools": ["sales_trend_analysis"]}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 2, "expected_replan": true, "expected_fallback": false, "expected_termination_reason": "replan_no_valid_tools", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "max_rounds",
+    "description": "Need-more at the limit terminates normally.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "max_rounds": 1,
+    "plans": [{"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "trend"}],
+    "inspections": [{"status": "need_more", "reason": "more"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "max_rounds", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "content_no_progress",
+    "description": "Different tools returning identical facts trigger no-progress.",
+    "scenario": "no_progress",
+    "schema_fields": ["sales_amount", "quantity"],
+    "user_goal": "画像",
+    "plans": [{"selected_tools": ["data_quality_check"], "reasoning_summary": "first"}, {"selected_tools": ["metric_distribution_analysis"], "reasoning_summary": "second"}],
+    "inspections": [{"status": "need_more", "reason": "more", "next_tools": ["metric_distribution_analysis"]}],
+    "expected": {"expected_tools": ["data_quality_check", "metric_distribution_analysis"], "forbidden_tools": [], "expected_rounds": 2, "expected_replan": true, "expected_fallback": false, "expected_termination_reason": "no_progress", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "planner_exception",
+    "description": "Planner exception uses fallback.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"$exception": "planner down"}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 0, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "planner_failure_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "inspector_exception",
+    "description": "Inspector exception uses fallback.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "trend"}],
+    "inspections": [{"$exception": "inspector down"}],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "inspect_failure_fallback", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "llm_disabled",
+    "description": "Disabled LLM uses fallback without calls.",
+    "scenario": "llm_disabled",
+    "schema_fields": ["sales_amount"],
+    "user_goal": "分析",
+    "plans": [],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 0, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "llm_unavailable_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "budget_exhausted",
+    "description": "Budget exhaustion before plan uses fallback.",
+    "scenario": "budget_exhausted",
+    "schema_fields": ["sales_amount"],
+    "user_goal": "分析",
+    "plans": [],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 0, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "budget_exhausted_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "tool_exception",
+    "description": "A lone tool failure is traced and falls back.",
+    "scenario": "tool_failure",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"selected_tools": ["sales_trend_analysis"], "reasoning_summary": "trend"}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_execution_no_evidence_fallback", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "partial_tool_failure",
+    "description": "Successful evidence survives a sibling tool failure.",
+    "scenario": "partial_failure",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势与质量",
+    "plans": [{"selected_tools": ["data_quality_check", "sales_trend_analysis"], "reasoning_summary": "both"}],
+    "inspections": [{"status": "enough", "reason": "trend survived"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "product_goal_match",
+    "description": "Product goal selects product contribution.",
+    "schema_fields": ["sales_amount", "product_name"],
+    "user_goal": "哪些商品贡献最高",
+    "plans": [{"selected_tools": ["product_contribution_analysis"], "reasoning_summary": "product"}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["product_contribution_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "args_dimension_region_accepted",
+    "description": "Mapped region and profit arguments are accepted.",
+    "schema_fields": ["sales_amount", "profit", "region"],
+    "user_goal": "分析区域利润",
+    "plans": [{"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "metric": "profit", "top_n": 10}}], "reasoning_summary": "region profit"}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["dimension_breakdown_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "args_dimension_region_unmapped",
+    "description": "A valid dimension enum is rejected when the dataset lacks it.",
+    "schema_fields": ["sales_amount", "country"],
+    "user_goal": "分析区域",
+    "plans": [{"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region"}}]}, {"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region"}}]}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": ["dimension_breakdown_analysis"], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_plan_invalid_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "args_profit_metric_unmapped",
+    "description": "Profit metric is rejected when profit is unmapped.",
+    "schema_fields": ["sales_amount", "region"],
+    "user_goal": "分析利润",
+    "plans": [{"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "metric": "profit"}}]}, {"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "metric": "profit"}}]}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": ["dimension_breakdown_analysis"], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_plan_invalid_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "args_top_n_out_of_range",
+    "description": "Out-of-range top_n is rejected.",
+    "schema_fields": ["sales_amount", "product_name"],
+    "user_goal": "商品贡献",
+    "plans": [{"tool_calls": [{"tool_name": "product_contribution_analysis", "arguments": {"top_n": 5000}}]}, {"tool_calls": [{"tool_name": "product_contribution_analysis", "arguments": {"top_n": 5000}}]}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": ["product_contribution_analysis"], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_plan_invalid_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "args_unknown_argument",
+    "description": "Extra planner arguments are forbidden.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"timezone": "UTC"}}]}, {"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"timezone": "UTC"}}]}],
+    "inspections": [],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": ["sales_trend_analysis"], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_plan_invalid_fallback", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "args_duplicate_same_signature",
+    "description": "The same normalized call is executed once.",
+    "schema_fields": ["sales_amount", "region"],
+    "user_goal": "区域",
+    "plans": [{"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "top_n": 10}}, {"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "top_n": 10}}]}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["dimension_breakdown_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "args_distinct_signatures_allowed",
+    "description": "One parameterized tool may run with distinct legal arguments.",
+    "schema_fields": ["sales_amount", "profit", "region"],
+    "user_goal": "区域",
+    "plans": [{"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "metric": "sales_amount", "top_n": 5}}, {"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "metric": "profit", "top_n": 5}}]}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["dimension_breakdown_analysis", "dimension_breakdown_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 2, "expected_evidence_count": 2}
+  },
+  {
+    "case_id": "args_signature_key_order",
+    "description": "Argument key order does not change the duplicate signature.",
+    "schema_fields": ["sales_amount", "profit", "region"],
+    "user_goal": "区域",
+    "plans": [{"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "metric": "profit", "top_n": 10}}, {"tool_name": "dimension_breakdown_analysis", "arguments": {"top_n": 10, "metric": "profit", "dimension": "region"}}]}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["dimension_breakdown_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "suff_satisfied_finalize",
+    "description": "Inspector enough is accepted when trend capability is evidenced.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}]}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "suff_no_valid_evidence_fallback",
+    "description": "No valid evidence cannot pass the floor.",
+    "scenario": "tool_failure",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "趋势",
+    "plans": [{"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}]}],
+    "inspections": [{"status": "enough", "reason": "premature"}],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": true, "expected_termination_reason": "initial_execution_no_evidence_fallback", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "suff_profit_forces_replan",
+    "description": "Premature enough is overruled and profit evidence is added.",
+    "schema_fields": ["order_datetime", "sales_amount", "profit"],
+    "user_goal": "利润",
+    "plans": [{"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}]}, {"tool_calls": [{"tool_name": "discount_profit_analysis", "arguments": {}}]}],
+    "inspections": [{"status": "enough", "reason": "premature"}, {"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis", "discount_profit_analysis"], "forbidden_tools": [], "expected_rounds": 2, "expected_replan": true, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "suff_region_replan_completes",
+    "description": "Guard suggestion leads to parameterized region evidence.",
+    "schema_fields": ["order_datetime", "sales_amount", "region"],
+    "user_goal": "区域",
+    "plans": [{"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}]}, {"tool_calls": [{"tool_name": "dimension_breakdown_analysis", "arguments": {"dimension": "region", "metric": "sales_amount", "top_n": 10}}]}],
+    "inspections": [{"status": "enough", "reason": "premature"}, {"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis", "dimension_breakdown_analysis"], "forbidden_tools": [], "expected_rounds": 2, "expected_replan": true, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 2}
+  },
+  {
+    "case_id": "suff_profit_unavailable",
+    "description": "Unavailable profit capability finalizes without a loop.",
+    "schema_fields": ["order_datetime", "sales_amount"],
+    "user_goal": "利润",
+    "plans": [{"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}]}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "capability_unavailable", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "suff_max_rounds_limited_finalize",
+    "description": "A missing capability at the limit produces explicit limited finalize.",
+    "schema_fields": ["order_datetime", "sales_amount", "profit"],
+    "user_goal": "利润",
+    "max_rounds": 1,
+    "plans": [{"tool_calls": [{"tool_name": "sales_trend_analysis", "arguments": {"granularity": "month"}}]}],
+    "inspections": [{"status": "enough", "reason": "premature"}],
+    "expected": {"expected_tools": ["sales_trend_analysis"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "sufficiency_guard_unresolved", "max_tool_calls": 1}
+  },
+  {
+    "case_id": "suff_unknown_goal_generic_floor",
+    "description": "Unknown goal wording uses the generic evidence floor.",
+    "schema_fields": ["sales_amount"],
+    "user_goal": "做一次综合经营复盘",
+    "plans": [{"tool_calls": [{"tool_name": "data_quality_check", "arguments": {}}]}],
+    "inspections": [{"status": "enough", "reason": "done"}],
+    "expected": {"expected_tools": ["data_quality_check"], "forbidden_tools": [], "expected_rounds": 1, "expected_replan": false, "expected_fallback": false, "expected_termination_reason": "evidence_sufficient", "max_tool_calls": 1}
+  }
+]

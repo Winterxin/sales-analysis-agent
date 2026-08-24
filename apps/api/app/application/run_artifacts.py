@@ -5,6 +5,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.application.run_context import AnalysisRunContext
+from app.db.models import utc_now
 from app.services.artifact_store import ArtifactStore
 from app.services.llm_trace_utils import with_llm_trace_summary
 
@@ -60,6 +61,37 @@ class RunArtifacts:
         ctx.llm_trace_path = ctx.store.save_json(
             ctx.task_id, "llm_trace.json", self.llm_trace_payload(ctx)
         )
+
+    def record_analysis_agent(self, ctx: AnalysisRunContext) -> None:
+        ctx.manifest.update(
+            {
+                "user_goal": ctx.user_goal,
+                "analysis_plan": ctx.analysis_plan.model_dump()
+                if ctx.analysis_plan is not None
+                else {},
+                "analysis_agent": (
+                    ctx.analysis_agent_state.public_payload()
+                    if ctx.analysis_agent_state is not None
+                    else {}
+                ),
+                "files": {
+                    **ctx.manifest.get("files", {}),
+                    "analysis_agent_state_json": str(
+                        _required_path(
+                            ctx.analysis_agent_state_path,
+                            "analysis_agent_state_path",
+                        )
+                    ),
+                    "analysis_agent_trace_json": str(
+                        _required_path(
+                            ctx.analysis_agent_trace_path,
+                            "analysis_agent_trace_path",
+                        )
+                    ),
+                },
+            }
+        )
+        ctx.store.save_manifest(ctx.task_id, ctx.manifest)
 
     def record_evidence_and_chart_plan(
         self,
@@ -141,11 +173,28 @@ class RunArtifacts:
                 "status": "completed",
                 "output_language": ctx.output_language,
                 "report": _required_report(ctx).model_dump(),
+                "analysis_agent": (
+                    ctx.analysis_agent_state.public_payload()
+                    if ctx.analysis_agent_state is not None
+                    else {}
+                ),
                 "llm_trace": self.llm_trace_payload(ctx),
                 "files": {
                     **ctx.manifest.get("files", {}),
                     "llm_trace_json": str(_required_path(ctx.llm_trace_path, "llm_trace_path")),
                     "report_json": str(_required_path(ctx.report_json_path, "report_json_path")),
+                    "analysis_agent_state_json": str(
+                        _required_path(
+                            ctx.analysis_agent_state_path,
+                            "analysis_agent_state_path",
+                        )
+                    ),
+                    "analysis_agent_trace_json": str(
+                        _required_path(
+                            ctx.analysis_agent_trace_path,
+                            "analysis_agent_trace_path",
+                        )
+                    ),
                     "notebook_outline_json": str(
                         _required_path(ctx.notebook_outline_path, "notebook_outline_path")
                     ),
@@ -201,6 +250,8 @@ class RunArtifacts:
 
     def mark_task_completed(self, ctx: AnalysisRunContext) -> None:
         ctx.task.status = "completed"
+        ctx.task.finished_at = utc_now()
+        ctx.task.heartbeat_at = ctx.task.finished_at
         ctx.task.artifact_manifest_path = str(ctx.store.manifest_path(ctx.task_id))
         ctx.task.dataset_type = _required_report(ctx).dataset_type
         self.session.add(ctx.task)

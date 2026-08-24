@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.application.run_artifacts import RunArtifacts
 from app.application.run_stages import RunStage, RunStageExecutor
 from app.application.runtime_state import RuntimeStateStore
-from app.analysis.runner import run_analysis
 from app.application.run_context import AnalysisRunContext
 from app.core.config import get_settings
 from app.db.models import AnalysisTask
@@ -21,6 +20,8 @@ from app.schemas.report import AnalysisReport
 from app.schemas.schema_mapping import SchemaMapping
 from app.schemas.tasks import BusinessReviewArtifact, NotebookArtifact, RunResponse
 from app.services.artifact_store import ArtifactStore
+from app.services.analysis_agent.graph import run_analysis_agent
+from app.services.analysis_agent.state import DEFAULT_USER_GOAL
 from app.services.business_review_builder import build_business_review
 from app.services.chart_selection_planner import build_chart_selection_plan
 from app.services.client_report_builder import (
@@ -220,11 +221,13 @@ class AnalysisRunService:
         task_id: str,
         llm_profile: str | None = None,
         output_language: str | None = None,
+        user_goal: str | None = None,
     ) -> RunResponse:
         ctx = self._prepare_context(
             task_id,
             llm_profile=llm_profile,
             output_language=output_language,
+            user_goal=user_goal,
         )
         for stage in self._build_stages(ctx):
             if self.runtime_state is not None:
@@ -250,8 +253,8 @@ class AnalysisRunService:
                 lambda: self._load_uploaded_inputs(ctx),
             ),
             RunStage(
-                "deterministic_analysis",
-                "Run deterministic analysis",
+                "analysis_agent",
+                "Run bounded analysis agent",
                 lambda: self._run_analysis_modules(ctx),
             ),
             RunStage(
@@ -322,6 +325,7 @@ class AnalysisRunService:
         *,
         llm_profile: str | None = None,
         output_language: str | None = None,
+        user_goal: str | None = None,
     ) -> AnalysisRunContext:
         task = self._get_task_or_404(task_id)
         store = ArtifactStore()
@@ -355,6 +359,8 @@ class AnalysisRunService:
             llm_profile_policy=llm_profile_policy,
             run_budget=run_budget,
             manifest=manifest,
+            user_goal=(user_goal or str(manifest.get("user_goal") or "")).strip()
+            or DEFAULT_USER_GOAL,
             allow_postrun_fallback_reflections=bool(
                 llm_profile_policy.get("allow_postrun_fallback_reflections", True)
             ),
@@ -377,12 +383,34 @@ class AnalysisRunService:
             raise HTTPException(status_code=400, detail="Task has not been uploaded") from exc
 
     def _run_analysis_modules(self, ctx: AnalysisRunContext) -> None:
-        ctx.report = run_analysis(
+        result = run_analysis_agent(
             task_id=ctx.task_id,
             csv_path=self._raw_csv_path(ctx),
             schema_mapping=self._schema_mapping(ctx),
-            plan=self._analysis_plan(ctx),
+            dataset_profile=ctx.dataset_profile,
+            user_goal=ctx.user_goal,
+            fallback_plan=self._analysis_plan(ctx),
+            llm_client=ctx.llm_client,
+            run_budget=ctx.run_budget,
+            max_rounds=ctx.settings.analysis_agent_max_rounds,
+            max_tools_per_round=ctx.settings.analysis_agent_max_tools_per_round,
+            max_plan_corrections=ctx.settings.analysis_agent_max_plan_corrections,
         )
+        ctx.report = result.report
+        ctx.analysis_plan = result.analysis_plan
+        ctx.analysis_agent_state = result.state
+        ctx.analysis_agent_trace = result.trace
+        ctx.analysis_agent_state_path = ctx.store.save_json(
+            ctx.task_id,
+            "analysis_agent_state.json",
+            result.state.public_payload(),
+        )
+        ctx.analysis_agent_trace_path = ctx.store.save_json(
+            ctx.task_id,
+            "analysis_agent_trace.json",
+            result.trace.model_dump(mode="json"),
+        )
+        self.artifacts.record_analysis_agent(ctx)
         ctx.llm_trace = _llm_stage_trace_payload(dict(ctx.manifest.get("llm_trace", {})))
 
     def _build_evidence_and_chart_plan(self, ctx: AnalysisRunContext) -> None:
