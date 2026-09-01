@@ -1,11 +1,10 @@
 # Sales Analysis Agent
 
-Sales Analysis Agent is an open-source, notebook-first sales analysis application.
-Upload a sales CSV and generate a reproducible analysis package: an executed
-notebook, charts, a business review, and client-ready reports.
+Sales Analysis Agent is an open-source AI application for turning sales CSV data into reproducible analysis artifacts, executed notebooks, and business reports.
 
-The project is designed around traceable outputs and explicit field-aware
-degradation:
+The system combines a bounded Agent workflow with deterministic pandas-based analysis. The Agent plans registered Tool Calls from the user goal, the Harness validates tool selection and parameters, deterministic modules compute the actual metrics, and the workflow inspects results before finalizing or performing a limited replan.
+
+The project is designed around traceable outputs and explicit field-aware degradation:
 
 - With Profit and Discount fields: profit quality and discount analysis are enabled.
 - With Profit but no Discount: profit analysis stays enabled while discount-specific conclusions are excluded.
@@ -13,10 +12,9 @@ degradation:
 
 ## Project Overview
 
-The application combines deterministic pandas-based analysis with optional LLM
-enrichment for planning and narrative generation. The generated notebook is the
-primary artifact, so each result can be reviewed, re-run, and traced back to the
-uploaded data.
+The application uses FastAPI for the service layer and LangGraph to coordinate the bounded analysis workflow. LLMs are used for planning and narrative generation, while numeric results remain owned by deterministic pandas modules.
+
+The generated notebook is a primary reproducible artifact, so each result can be reviewed, re-run, and traced back to the uploaded data. When the model is unavailable, produces invalid decisions, or exceeds its budget, the system falls back to a deterministic analysis plan instead of blocking the whole run.
 
 ## What It Generates
 
@@ -36,17 +34,19 @@ A completed run can produce:
 
 ## Key Features
 
-- CSV upload workflow for sales transaction data
+- Bounded Agent loop with planning, validated Tool Calls, inspection, limited replan, and fallback
+- LangGraph-based workflow with structured Agent state and per-node trace
+- Tool whitelist and Harness guards for argument schemas, dataset capabilities, duplicate prevention, round limits, and budget
+- Deterministic pandas modules for all numeric metrics, tables, and chart-ready data
+- FastAPI service for CSV upload, task execution, status, artifacts, and UI routes
+- Runtime task status with progress heartbeat, refresh recovery, LLM call state, and cooperative cancellation
 - Schema mapping for flexible column names
 - Sales trend, product/category, regional, discount, profit, and data-quality analysis
 - Field-aware limits when optional columns are missing
 - Executed notebook output with charts and supporting tables
 - Business review and client report artifacts
-- Runtime task status with progress heartbeat, refresh recovery, LLM call state, and cooperative cancellation
-- Optional LLM enrichment through an OpenAI-compatible Chat Completions endpoint
-- Bounded analysis Agent loop with validated Tool Calls, a deterministic
-  sufficiency guard, tool whitelist, and fallback
-- Structured per-node Agent trace and reproducible scripted Golden Eval
+- Reproducible scripted Golden Eval for the Agent workflow
+- OpenAI-compatible Chat Completions configuration
 
 ## Supported Data Shape
 
@@ -127,9 +127,7 @@ SALES_AGENT_LLM_API_KEY=
 SALES_AGENT_LLM_MODEL=
 ```
 
-The LLM enriches planning and narrative generation. It is optional: incomplete
-configuration falls back safely, and the deterministic analysis pipeline remains
-runnable when LLM enrichment is disabled.
+The LLM is used for planning and narrative generation. Incomplete configuration falls back safely, and the deterministic analysis pipeline remains runnable when LLM enrichment is disabled.
 
 The run endpoint accepts an optional `user_goal` query parameter. When omitted,
 the Agent uses a general business-analysis goal.
@@ -172,7 +170,7 @@ and does not represent production data.
 - Harness guards enforce argument schemas, dataset capabilities, signature-based
   duplicate prevention, tool/round limits, no-progress termination, and budget.
 - Disabled, failed, invalid, or budget-blocked Agent decisions fall back to the
-  existing deterministic analysis plan.
+  deterministic analysis plan.
 - Notebook assembly produces executable and executed notebook artifacts.
 - Report builders produce business and client-facing output files.
 
